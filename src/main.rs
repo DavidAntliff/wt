@@ -32,6 +32,9 @@ enum Cmd {
         /// worktree directory (overrides the default sibling path)
         #[arg(short, long, value_name = "DIR")]
         path: Option<PathBuf>,
+        /// copy the main clone's .idea/ into the new worktree
+        #[arg(short, long)]
+        idea: bool,
         /// skip submodule checkout (default: check them out)
         #[arg(long)]
         no_submodules: bool,
@@ -73,6 +76,12 @@ enum Cmd {
         #[arg(short, long)]
         git: bool,
     },
+    /// copy the main clone's .idea/ into the current worktree
+    Idea {
+        /// overwrite an existing .idea/ in the worktree
+        #[arg(short, long)]
+        force: bool,
+    },
     /// print the main-clone root (for `wt main`)
     Main,
     /// back-compat alias for `main`, hidden from --help
@@ -105,6 +114,7 @@ fn main() {
             detach,
             base,
             path,
+            idea,
             no_submodules,
             no_cd,
         }) => commands::add(&AddOpts {
@@ -112,6 +122,7 @@ fn main() {
             detach,
             base,
             path,
+            idea,
             submodules: !no_submodules,
             no_cd,
         }),
@@ -135,6 +146,7 @@ fn main() {
             size,
             git,
         }),
+        Some(Cmd::Idea { force }) => commands::idea(force),
         Some(Cmd::Main | Cmd::Parent) => commands::main_cmd(),
         Some(Cmd::Resolve { query }) => commands::resolve(&query),
     };

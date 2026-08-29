@@ -79,6 +79,7 @@ wt main                  cd to the main clone
 wt add [opts] <branch>   create a sibling worktree for <branch> and cd into it
 wt add -d [commit-ish]   ...or a detached worktree (no branch), default HEAD
 wt rm [opts] [path]      remove a worktree (offers to delete its branch too)
+wt idea [-f]             copy the main clone's .idea/ into the current worktree
 ```
 
 Run `wt <command> -h` for a command's own options.
@@ -94,7 +95,8 @@ Run `wt <command> -h` for a command's own options.
   base it elsewhere)
 
 Submodules are populated by default (`--no-submodules` to skip). `-p DIR`
-overrides the default sibling path; `--no-cd` creates the worktree but leaves
+overrides the default sibling path; `-i` seeds the new worktree with the main
+clone's `.idea/` (IntelliJ config); `--no-cd` creates the worktree but leaves
 your shell where it is. `wt add -d v1.2.3` gives a branchless worktree detached
 at a tag/commit — handy for builds and bisects.
 
@@ -105,6 +107,13 @@ git's bookkeeping cleaned up, refuses to touch the main clone, never discards
 uncommitted work without `-f`, and offers to delete the now-unused branch
 (`-d` to delete it without asking). If it removed the directory your shell was
 standing in, your shell is moved to the main clone instead of being stranded.
+
+### idea
+
+`wt idea` copies the main clone's `.idea/` (IntelliJ per-project config, which
+is per-directory and so doesn't follow you into a new worktree) into the
+current worktree, for worktrees created without `add -i`. It refuses to
+overwrite an existing `.idea/` unless you pass `-f`.
 
 ### cd / resolve
 

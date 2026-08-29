@@ -295,6 +295,69 @@ fn leading_flag_means_list() {
 }
 
 #[test]
+fn idea_syncs_from_main_clone_into_worktree() {
+    let t = setup();
+    let idea = t.repo().join(".idea");
+    std::fs::create_dir_all(idea.join("sub")).unwrap();
+    std::fs::write(idea.join("workspace.xml"), "<xml/>\n").unwrap();
+    std::fs::write(idea.join("sub").join("deep.xml"), "<deep/>\n").unwrap();
+
+    let add = wt(&t.repo(), &["add", "ideas"]);
+    let wt_path = PathBuf::from(stdout(&add).trim());
+
+    // From the main clone: refused (it is the source, not a target).
+    let out = wt(&t.repo(), &["idea"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(stderr(&out).contains("main clone"));
+
+    // From the worktree: copied recursively, nothing on stdout.
+    let out = wt(&wt_path, &["idea"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    assert_eq!(
+        std::fs::read_to_string(wt_path.join(".idea/sub/deep.xml")).unwrap(),
+        "<deep/>\n"
+    );
+
+    // Existing .idea/ needs -f; -f replaces (old contents gone, not merged).
+    let out = wt(&wt_path, &["idea"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(stderr(&out).contains("--force"));
+    std::fs::write(wt_path.join(".idea/stale.xml"), "old\n").unwrap();
+    let out = wt(&wt_path, &["idea", "-f"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!wt_path.join(".idea/stale.xml").exists());
+    assert!(wt_path.join(".idea/workspace.xml").exists());
+}
+
+#[test]
+fn idea_errors_when_main_clone_has_none() {
+    let t = setup();
+    let add = wt(&t.repo(), &["add", "noidea"]);
+    let wt_path = PathBuf::from(stdout(&add).trim());
+    let out = wt(&wt_path, &["idea"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(stderr(&out).contains("nothing to sync"));
+}
+
+#[test]
+fn add_with_idea_flag_seeds_the_new_worktree() {
+    let t = setup();
+    std::fs::create_dir_all(t.repo().join(".idea")).unwrap();
+    std::fs::write(t.repo().join(".idea/misc.xml"), "<misc/>\n").unwrap();
+    let out = wt(&t.repo(), &["add", "-i", "seeded"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let wt_path = PathBuf::from(stdout(&out).trim());
+    assert!(wt_path.join(".idea/misc.xml").exists());
+
+    // Without .idea/ in the main clone: a notice, not an error.
+    let t2 = setup();
+    let out = wt(&t2.repo(), &["add", "-i", "unseeded"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stderr(&out).contains("skipped"));
+}
+
+#[test]
 fn outside_a_repo_is_an_error() {
     let t = setup();
     // t.dir itself is the container, not a repo.

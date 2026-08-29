@@ -14,6 +14,7 @@ pub struct AddOpts {
     pub detach: bool,
     pub base: Option<String>,
     pub path: Option<PathBuf>,
+    pub idea: bool,
     pub submodules: bool,
     pub no_cd: bool,
 }
@@ -214,6 +215,19 @@ pub fn add(opts: &AddOpts) -> Result<()> {
             ],
             None,
         )?;
+    }
+
+    // Optionally seed IntelliJ config from the main clone (the canonical
+    // source, same as `wt idea`).
+    if opts.idea {
+        let src = main_clone.join(".idea");
+        if src.is_dir() {
+            copy_dir_all(&src, &wt_path.join(".idea"))
+                .map_err(|e| crate::Error::new(format!("copying .idea/: {e}")))?;
+            info!("wt: copied .idea/ from {}", main_clone.display());
+        } else {
+            info!("wt: no .idea/ in {}; skipped", main_clone.display());
+        }
     }
 
     if opts.no_cd {
@@ -674,6 +688,78 @@ pub fn main_cmd() -> Result<()> {
     info!("wt: main {}", main_clone.display());
     // stdout = the main-clone root, for the `wt` shell function to cd into.
     println!("{}", main_clone.display());
+    Ok(())
+}
+
+// -----------------------------------------------------------------------------
+// idea
+// -----------------------------------------------------------------------------
+
+/// Recursive copy (Python's `shutil.copytree`); merges into an existing dst.
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &to)?;
+        } else {
+            std::fs::copy(entry.path(), &to)?;
+        }
+    }
+    Ok(())
+}
+
+// ponytail: hardcodes the .idea/ directory; planned successor is `wt copy`,
+// taking a list of directories from an env var.
+pub fn idea(force: bool) -> Result<()> {
+    let cwd = cwd()?;
+    git::require_worktree(&cwd)?;
+    let main_clone = git::main_clone_of(&cwd)?;
+    let cur_top = git::resolve(&PathBuf::from(git::capture(
+        &["git", "rev-parse", "--show-toplevel"],
+        Some(&cwd),
+    )?));
+
+    if cur_top == main_clone {
+        fail!(
+            "current worktree is the main clone ({}); `wt idea` syncs .idea/ FROM the main clone \
+             INTO a worktree — run it from inside a worktree",
+            main_clone.display()
+        );
+    }
+
+    let src = main_clone.join(".idea");
+    if !src.is_dir() {
+        fail!(
+            "no .idea/ in the main clone ({}); nothing to sync",
+            main_clone.display()
+        );
+    }
+
+    let dst = cur_top.join(".idea");
+    if dst.exists() {
+        if !force {
+            fail!(
+                ".idea/ already exists in this worktree ({}); pass -f/--force to overwrite it",
+                dst.display()
+            );
+        }
+        let removed = if dst.is_dir() {
+            std::fs::remove_dir_all(&dst)
+        } else {
+            std::fs::remove_file(&dst)
+        };
+        removed.map_err(|e| crate::Error::new(format!("removing {}: {e}", dst.display())))?;
+        info!("wt: removed existing .idea/ in {}", cur_top.display());
+    }
+
+    copy_dir_all(&src, &dst).map_err(|e| crate::Error::new(format!("copying .idea/: {e}")))?;
+    info!(
+        "wt: synced .idea/ from {} -> {}",
+        main_clone.display(),
+        cur_top.display()
+    );
     Ok(())
 }
 

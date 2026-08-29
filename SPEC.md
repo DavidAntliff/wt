@@ -52,11 +52,12 @@ breaks `wt` (the function would `cd` into whatever lands on stdout).
 ## Binary commands
 
 ```
-wt add  [-d] [-b REF] [-p DIR] [--no-submodules] [--no-cd] [BRANCH]
+wt add  [-d] [-b REF] [-p DIR] [-i] [--no-submodules] [--no-cd] [BRANCH]
 wt rm   [-f] [-d] [PATH|QUERY]
 wt list [-p|--porcelain] [-a|--absolute] [-s|--size] [-g|--git]
 wt main
 wt resolve QUERY
+wt idea [-f|--force]
 wt            # no command -> list (exit 0)
 wt -s|-g|...  # leading flag -> list with those flags (wt -sg works)
 ```
@@ -89,6 +90,8 @@ Options:
   Ignored, with a notice, if BRANCH exists.
 - `-p, --path DIR` — create the worktree at DIR instead of the default sibling
   path. Relative paths resolve against the current dir.
+- `-i, --idea` — copy the MAIN CLONE's `.idea/` into the new worktree (IntelliJ
+  config; same source as `wt idea`). No-op with a notice if absent.
 - `--no-submodules` — skip `submodule update --init --recursive` (default: run).
 - `--no-cd` — create the worktree but do NOT cd into it: suppress the stdout
   path so the `wt` shell function stays put, and print
@@ -191,6 +194,24 @@ Print the main-clone root (parent of the shared `.git`) to stdout. `wt main` cds
 to it. `parent`, the command's former name, is still accepted as an undocumented
 alias (hidden from `--help`).
 
+### idea [-f]
+
+Sync IntelliJ config into the CURRENT worktree after the fact, for when it was
+created without `add -i`. Copies the MAIN CLONE's `.idea/` into the current
+worktree's root (resolved via `git rev-parse --show-toplevel`, so it works from
+any subdir).
+
+- `-f, --force` — overwrite an existing `.idea/` in the worktree (the existing
+  one is removed first, so the result is a clean copy of the main clone's — a
+  true overwrite, not a merge).
+
+Refuses to run from the main clone itself (it is the source, not a target).
+Errors if the main clone has no `.idea/`, or if the worktree already has one and
+`-f` was not given (the "warn" — no files are touched). No stdout path.
+
+Planned evolution: `idea` will become a general `wt copy`, taking the list of
+directories to sync from an environment variable instead of hardcoding `.idea/`.
+
 ### resolve QUERY
 
 Map QUERY to a single worktree by its branch name OR its worktree dir basename
@@ -226,7 +247,7 @@ forwarded to the binary.
 | `cd [QUERY]` | Shell-intercepted. With QUERY: run `wt resolve QUERY` and cd to the printed path. With NO query, or with the literal query `main`, behave like `wt main`. (`main` is special-cased rather than left to `resolve`, so it lands on the main clone deterministically instead of depending on that clone happening to be on a branch named `main` — a fuzzy match could otherwise pick up e.g. `wt-…-maintenance.git`. Nothing legitimate is shadowed: git will not let a linked worktree hold the main clone's branch anyway.) The `cd` verb lives only in this wrapper; `resolve` is the binary's reusable primitive. |
 | `add` | Shell-intercepted. Run `wt add …` (narration streams via stderr), capture the new worktree path from stdout, and cd into it. All add flags pass through; with `--no-cd` the binary prints no path, so the shell stays put. |
 | `rm` | Run `wt rm …`. rm can delete the directory the shell is in; in that case the binary prints a safe dir (the main clone) on stdout and `wt` cds there, so the shell is never stranded in a deleted directory. rm's prompts still work: they are on stderr and stdin stays attached under the capture. |
-| anything else (`list`, empty, unknown) | Forwarded verbatim with stdin/stdout/stderr attached. Empty → the binary defaults to `list`; a leading list flag (`wt -s`, `wt -g`, `wt -sg`) → the binary rewrites it to `list`; an unknown command → clap's "unrecognized subcommand" error. Nothing here changes cwd. |
+| anything else (`list`, `idea`, empty, unknown) | Forwarded verbatim with stdin/stdout/stderr attached. `idea` syncs the main clone's `.idea/` into the current worktree; empty → the binary defaults to `list`; a leading list flag (`wt -s`, `wt -g`, `wt -sg`) → the binary rewrites it to `list`; an unknown command → clap's "unrecognized subcommand" error. Nothing here changes cwd. |
 
 Per-command help (`wt <cmd> -h` / `--help`): for the intercepting branches
 (main/cd/add/rm), a help flag in the args is detected first and the call is
@@ -255,6 +276,8 @@ Executing `wt-shell` directly (not sourcing it) prints usage and exits 0.
   without `-f` / confirmation declined / `worktree remove` fails (a failed
   `branch -d` is a non-fatal stderr notice)
 - `resolve`: no match (exit 1); ambiguous match (exit 2) — used by `wt cd`
+- `idea`: run from the main clone / main clone has no `.idea/` / worktree
+  already has one and no `-f`
 - clap usage errors exit 2 (as argparse did)
 
 ## Notes
@@ -263,9 +286,6 @@ Executing `wt-shell` directly (not sourcing it) prints usage and exits 0.
   into submodules' own worktrees.
 - New branches start at the base ref's tip; fetch/pull first (or pass
   `-b origin/<branch>`) for the latest upstream.
-- The original Python implementation had a `wt idea` command (copy the main
-  clone's `.idea/` into a worktree); it was deliberately dropped from this port
-  as IDE-specific.
 - History: this replaced earlier standalone `wt-add`/`wt-rm`/`wt-list`
   executables and a `wt-parent` function; `main` was called `parent` until the
   rename, and `wt parent` still works but is not documented in any help output.

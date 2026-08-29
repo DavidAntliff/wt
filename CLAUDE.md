@@ -3,8 +3,8 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 `wt` is a git-worktree front end: a Rust binary (`add` / `rm` / `list` / `main` /
-`resolve`) plus a sourced bash function (`wt-shell`) that wraps it and performs the
-`cd`s a child process cannot. `README.md` is the user-facing guide; `SPEC.md` is the
+`resolve` / `idea`) plus a sourced bash function (`wt-shell`) that wraps it and performs
+the `cd`s a child process cannot. `README.md` is the user-facing guide; `SPEC.md` is the
 authoritative behaviour spec — keep it in sync with any behaviour change.
 
 ## Hard constraints
@@ -62,7 +62,7 @@ default live in `main.rs`, before clap parses.
   matched against branch name AND dir basename so detached worktrees are reachable)
   is wrapped by `match_worktree`, which is shared by `resolve` and `rm` — matching
   behaviour must stay identical between them.
-- `commands.rs` — the five commands, plus `list`'s helpers (`git_info`, `dir_size`,
+- `commands.rs` — the commands, plus `list`'s helpers (`git_info`, `dir_size`,
   `format_table`, `relpath`).
 
 `wt-shell` is bash, sourced, and dispatches on the first word; its dispatch table is in
@@ -84,8 +84,9 @@ capture, or `--help` output gets cd'd into.
 - **`rm` prints a path on stdout only when it removed the directory the shell was
   standing in** — that is the shell function's cue to move the shell to safety, not a
   general result.
-- The Python original had a `wt idea` command (IntelliJ `.idea/` sync); it was
-  deliberately dropped from this port. Do not resurrect it.
+- **`wt idea` is a stopgap name.** The plan is to generalise it into `wt copy`, taking
+  the list of directories to sync from an environment variable instead of hardcoding
+  `.idea/`. Keep that in mind before deepening its `.idea`-specific behaviour.
 
 ## Provenance
 
