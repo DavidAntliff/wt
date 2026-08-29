@@ -64,6 +64,13 @@ default live in `main.rs`, before clap parses.
   behaviour must stay identical between them.
 - `commands.rs` — the commands, plus `list`'s helpers (`git_info`, `dir_size`,
   `format_table`, `relpath`).
+- `theme.rs` — `--color` handling and the `Theme` struct. Every colour AND threshold
+  (size warn/alert bytes, LAST age bands) is a `Theme` field — the palette is meant to
+  be tweaked and later loaded from configuration, so never hard-code a colour or a
+  cutoff at a paint site. **Escapes must never enter a width calculation**:
+  `format_table` pads from plain cell text and paints afterwards;
+  `alignment_is_unaffected_by_colour` is the test that catches violations. Porcelain
+  output is never coloured.
 
 `wt-shell` is bash, sourced, and dispatches on the first word; its dispatch table is in
 SPEC.md. It finds the binary as `command wt` (the function shadows it), so nothing is

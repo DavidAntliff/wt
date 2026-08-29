@@ -6,6 +6,7 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::theme::{ColorWhen, Theme};
 use crate::worktree::{self, Worktree, branch_label};
 use crate::{Result, fail, git, info};
 
@@ -31,6 +32,7 @@ pub struct ListOpts {
     pub absolute: bool,
     pub size: bool,
     pub git: bool,
+    pub color: ColorWhen,
 }
 
 fn cwd() -> Result<PathBuf> {
@@ -531,7 +533,14 @@ fn git_info(wt: &Worktree, main_head: Option<&str>, is_main: bool) -> [String; 4
 /// Format the aligned table (headers + rows-with-markers). Pure, so alignment
 /// is unit-testable. Every column is left-aligned except SIZE (numbers read
 /// right-aligned).
-pub fn format_table(headers: &[&str], rows: &[(Vec<String>, String)]) -> String {
+///
+/// Widths come from the PLAIN cell text; the theme paints a cell only after
+/// its padding is decided, so escapes never enter a width calculation.
+pub fn format_table(
+    headers: &[&str],
+    rows: &[(Vec<String>, String)],
+    theme: Option<&Theme>,
+) -> String {
     let widths: Vec<usize> = headers
         .iter()
         .enumerate()
@@ -543,30 +552,39 @@ pub fn format_table(headers: &[&str], rows: &[(Vec<String>, String)]) -> String 
                 .unwrap()
         })
         .collect();
-    let fmt = |cells: &[String]| -> String {
+    let fmt = |cells: &[String], paint: &dyn Fn(&str, &str) -> String| -> String {
         cells
             .iter()
             .zip(headers)
             .zip(&widths)
             .map(|((c, h), w)| {
+                let pad = " ".repeat(w.saturating_sub(c.len()));
                 if *h == "SIZE" {
-                    format!("{c:>w$}")
+                    format!("{pad}{}", paint(h, c))
                 } else {
-                    format!("{c:<w$}")
+                    format!("{}{pad}", paint(h, c))
                 }
             })
             .collect::<Vec<_>>()
             .join("  ")
     };
+    let paint_cell = |h: &str, c: &str| match theme {
+        Some(t) => t.paint(h, c),
+        None => c.to_string(),
+    };
+    let paint_header = |_: &str, c: &str| match theme {
+        Some(t) => t.paint_header(c),
+        None => c.to_string(),
+    };
     let mut out = String::new();
     let header_cells: Vec<String> = headers.iter().map(|h| h.to_string()).collect();
-    out.push_str(fmt(&header_cells).trim_end());
+    out.push_str(fmt(&header_cells, &paint_header).trim_end());
     out.push('\n');
     for (cells, marks) in rows {
         // The markers are their own column, so the padding of the columns
         // before them has to survive; only a row's trailing whitespace is
         // stripped.
-        out.push_str(format!("{}  {}", fmt(cells), marks).trim_end());
+        out.push_str(format!("{}  {}", fmt(cells, &paint_cell), marks).trim_end());
         out.push('\n');
     }
     out
@@ -627,17 +645,25 @@ pub fn list(opts: &ListOpts) -> Result<()> {
         headers.extend(["STATUS", "MERGED", "UPSTREAM", "LAST"]);
     }
 
+    let theme = opts.color.enabled().then(Theme::default);
     let rows: Vec<(Vec<String>, String)> = trees
         .iter()
         .map(|wt| {
             let resolved = git::resolve(&wt.path);
             let mut marks = Vec::new();
             if resolved == main_clone {
-                marks.push("[main]");
+                marks.push("main");
             }
             if resolved == cur_top {
-                marks.push("[cwd]");
+                marks.push("cwd");
             }
+            let marks: Vec<String> = marks
+                .iter()
+                .map(|m| match &theme {
+                    Some(t) => t.paint_marker(m),
+                    None => format!("[{m}]"),
+                })
+                .collect();
             // Relative to cwd by default (siblings -> ../foo); -a for absolute.
             let disp = if opts.absolute {
                 wt.path.to_string_lossy().into_owned()
@@ -650,7 +676,7 @@ pub fn list(opts: &ListOpts) -> Result<()> {
         })
         .collect();
 
-    print!("{}", format_table(&headers, &rows));
+    print!("{}", format_table(&headers, &rows, theme.as_ref()));
     Ok(())
 }
 
@@ -804,7 +830,7 @@ mod tests {
                 String::new(),
             ),
         ];
-        let out = format_table(&headers, &rows);
+        let out = format_table(&headers, &rows, None);
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines[0], "PATH                BRANCH     SIZE");
         // SIZE right-aligned, markers appended, no trailing whitespace.
@@ -814,5 +840,62 @@ mod tests {
         );
         assert_eq!(lines[2], "../wt-repo-foo.git  dev/foo   80M");
         assert!(out.lines().all(|l| l == l.trim_end()));
+    }
+
+    /// Strip ANSI SGR sequences (ESC ... 'm') without a regex dependency.
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                for c in chars.by_ref() {
+                    if c == 'm' {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn alignment_is_unaffected_by_colour() {
+        // Escapes must never enter a width calculation: stripping them from the
+        // painted table must reproduce the plain table exactly.
+        let headers = [
+            "PATH", "BRANCH", "SIZE", "STATUS", "MERGED", "UPSTREAM", "LAST",
+        ];
+        let rows = vec![
+            (
+                vec![
+                    "../repo".into(),
+                    "main".into(),
+                    "12G".into(),
+                    "clean".into(),
+                    "-".into(),
+                    "ok".into(),
+                    "2 days ago".into(),
+                ],
+                "[main]".to_string(),
+            ),
+            (
+                vec![
+                    "../wt-repo-foo.git".into(),
+                    "dev/foo".into(),
+                    "1.2G".into(),
+                    "2 mod, 1 untr".into(),
+                    "+3".into(),
+                    "none".into(),
+                    "3 weeks ago".into(),
+                ],
+                String::new(),
+            ),
+        ];
+        let plain = format_table(&headers, &rows, None);
+        let painted = format_table(&headers, &rows, Some(&Theme::default()));
+        assert_ne!(plain, painted);
+        assert_eq!(strip_ansi(&painted), plain);
     }
 }

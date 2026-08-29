@@ -15,6 +15,7 @@
 
 pub mod commands;
 pub mod git;
+pub mod theme;
 pub mod worktree;
 
 /// Fatal error: `msg` (if any) is printed as "wt: <msg>" to stderr by main,

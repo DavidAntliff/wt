@@ -54,7 +54,7 @@ breaks `wt` (the function would `cd` into whatever lands on stdout).
 ```
 wt add  [-d] [-b REF] [-p DIR] [-i] [--no-submodules] [--no-cd] [BRANCH]
 wt rm   [-f] [-d] [PATH|QUERY]
-wt list [-p|--porcelain] [-a|--absolute] [-s|--size] [-g|--git]
+wt list [-p|--porcelain] [-a|--absolute] [-s|--size] [-g|--git] [--color WHEN]
 wt main
 wt resolve QUERY
 wt idea [-f|--force]
@@ -185,6 +185,27 @@ list options work without typing `list`.
   i.e. no local-only commits). Dirty, or `+N` with UPSTREAM none/ahead, means
   work would be lost. Cheap (refs/index only), unlike `-s`: no tree walk. Failed
   queries render as values (`?`), never abort the listing.
+
+- `--color WHEN` — colour the table: `auto` (default: only when stdout is a
+  terminal, `NO_COLOR` is unset, and `TERM` is not `dumb`), `always`, `never`.
+  Porcelain output is never coloured. All colours and thresholds live in one
+  `Theme` struct (`src/theme.rs`), nothing is hard-coded at the paint site;
+  the defaults:
+
+  | element | colour |
+  |---------|--------|
+  | column headers | cyan |
+  | PATH | white |
+  | BRANCH | red italic |
+  | marker brackets `[]` | white; `main` yellow, `cwd` green |
+  | SIZE | white; > 1 GiB yellow; > 10 GiB red |
+  | STATUS | `clean` green; `N mod` red; `N untr` yellow (parts painted separately) |
+  | MERGED | `merged` green; `+N` red |
+  | UPSTREAM | `ok` green; `none` white; ahead/behind unpainted |
+  | LAST | ≤ 3 days green; < 1 week yellow; ≥ 1 week red |
+
+  Unknown cell values (`-`, `?`) are never painted. Column widths are computed
+  from plain text before painting, so escapes cannot affect alignment.
 
 This command's stdout IS its output (table/porcelain).
 

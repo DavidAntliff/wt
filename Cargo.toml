@@ -15,4 +15,5 @@ name = "wt"
 path = "src/main.rs"
 
 [dependencies]
+anstyle = "1"
 clap = { version = "4", features = ["derive"] }

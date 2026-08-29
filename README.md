@@ -44,6 +44,10 @@ PATH                          BRANCH         STATUS   MERGED  UPSTREAM  LAST
 
 `old-spike` is clean and merged: safe to `wt rm`. `fix-foo` has local work.
 
+The table is coloured when stdout is a terminal (green = safe / fresh, yellow =
+attention, red = work you'd lose); `--color always|never|auto` overrides, and
+`NO_COLOR` is respected.
+
 ## Install
 
 Two pieces: the `wt` binary (Rust) and the `wt` shell function that wraps it
@@ -72,7 +76,7 @@ it, which also makes it usable from scripts and other tooling.
 
 ```
 wt                       list all worktrees (same as `wt list`)
-wt list [-p] [-a] [-s] [-g]
+wt list [-p] [-a] [-s] [-g] [--color WHEN]
 wt -s | -g | -sg         shorthand: list flags work without the `list` word
 wt cd <query>            cd to the worktree whose branch/path fuzzy-matches <query>
 wt main                  cd to the main clone

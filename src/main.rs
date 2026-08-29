@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use wt::commands::{self, AddOpts, ListOpts, RmOpts};
+use wt::theme::ColorWhen;
 
 #[derive(Parser)]
 #[command(
@@ -75,6 +76,9 @@ enum Cmd {
         /// local-only upstream: ok / behind N)
         #[arg(short, long)]
         git: bool,
+        /// when to colour the table
+        #[arg(long, value_enum, value_name = "WHEN", default_value = "auto")]
+        color: ColorWhen,
     },
     /// copy the main clone's .idea/ into the current worktree
     Idea {
@@ -140,11 +144,13 @@ fn main() {
             absolute,
             size,
             git,
+            color,
         }) => commands::list(&ListOpts {
             porcelain,
             absolute,
             size,
             git,
+            color,
         }),
         Some(Cmd::Idea { force }) => commands::idea(force),
         Some(Cmd::Main | Cmd::Parent) => commands::main_cmd(),
