@@ -1,0 +1,18 @@
+[package]
+name = "wt"
+version = "0.1.0"
+edition = "2024"
+description = "git worktree front end: add / rm / list / cd between sibling worktrees"
+license = "MIT"
+readme = "README.md"
+
+[lib]
+name = "wt"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wt"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }

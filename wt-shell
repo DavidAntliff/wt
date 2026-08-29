@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# wt-shell — the `wt` git-worktree shell function (front end for the `wt` binary).
+#
+# `wt` is the single command the user drives. It intercepts the operations that
+# must run IN your shell — the ones that change the shell's current directory,
+# which a child process cannot do — and forwards everything else to the binary:
+#   wt main            cd to the main clone
+#   wt cd <query>      cd to the worktree whose branch fuzzy-matches <query>
+#   wt add <branch>    create a worktree (via the binary) AND cd into it
+#   wt rm | list | …   forwarded straight to the binary
+#
+# Because it changes the shell's directory, this must be SOURCED, not executed.
+# Source it from your shell rc:
+#     source ~/.local/bin/wt-shell
+#
+# The sourced `wt` function shadows the `wt` binary on your PATH; the function
+# reaches the binary with `command wt`. Implementation / command behaviour:
+# the `wt` binary (and SPEC.md in its repository).
+
+# Curated top-level help for the `wt` command surface. Unlike `wt --help` (which
+# is implementation-oriented: it lists `resolve`, not the shell-only `cd`), this
+# describes the commands as the user invokes them through the function.
+_wt_help() {
+    cat <<'EOF'
+wt — git worktree helper (a shell front end for the wt binary)
+
+Usage: wt <command> [args]
+
+Commands:
+  wt                       list all worktrees (same as `wt list`)
+  wt list [-p] [-s] [-g]   list worktrees: paths + branches (-s: + size, -g: + git
+                           state — clean? merged? pushed? last commit)
+  wt -s | -g | -sg         shorthand: list flags work without the `list` word
+  wt cd <query>            cd to the worktree whose branch/path fuzzy-matches <query>
+  wt main                  cd to the main clone (same as `wt cd` or `wt cd main`)
+  wt add [opts] <branch>   create a sibling worktree for <branch> and cd into it
+  wt add -d [commit-ish]   ...or a detached worktree (no branch), default HEAD
+  wt rm [opts] [path]      remove a worktree (offers to delete its branch too)
+
+cd / main / add / rm change the shell's directory — which is why `wt` is a
+sourced function rather than a plain program. For a command's own options, run
+`wt <command> -h`, e.g. `wt add -h` or `wt rm -h`.
+EOF
+}
+
+# True if any argument is a help flag (-h/--help).
+_wt_wants_help() {
+    local a
+    for a in "$@"; do
+        case "$a" in -h|--help) return 0 ;; esac
+    done
+    return 1
+}
+
+wt() {
+    local target st
+    case "${1:-}" in
+        -h|--help|help)
+            # Top-level help: our own curated overview, NOT `wt --help`.
+            _wt_help
+            return 0
+            ;;
+        main|parent)
+            # `parent` is the command's former name, kept working silently.
+            # Per-command help forwards to the binary (it prints to stdout and
+            # exits, so it must NOT be captured-and-cd'd into). Otherwise: the
+            # binary prints the main-clone root on stdout; cd into it.
+            if _wt_wants_help "$@"; then command wt main --help; return $?; fi
+            target="$(command wt main)"; st=$?
+            if [ $st -eq 0 ] && [ -n "$target" ]; then cd "$target"; else return $st; fi
+            ;;
+        cd)
+            # `wt cd QUERY`: `wt resolve QUERY` fuzzy-matches QUERY against
+            # worktree branches and prints the matched worktree path on stdout;
+            # cd into it. Ambiguity / no-match are reported on stderr (exit 2 /
+            # 1) and leave cwd unchanged. Bare `wt cd`, and the literal query
+            # `main`, both behave like `wt main` (cd to the main clone).
+            # (`resolve` is the binary's reusable primitive; the `cd` verb lives
+            # only here, in the shell wrapper.)
+            shift
+            if _wt_wants_help "$@"; then command wt resolve --help; return $?; fi
+            if [ $# -eq 0 ] || [ "$1" = main ]; then
+                target="$(command wt main)"; st=$?
+            else
+                target="$(command wt resolve "$@")"; st=$?
+            fi
+            if [ $st -eq 0 ] && [ -n "$target" ]; then cd "$target"; else return $st; fi
+            ;;
+        add)
+            # The binary creates the worktree (narrating on stderr) and prints
+            # the new worktree path on stdout; cd into it.
+            if _wt_wants_help "$@"; then command wt "$@"; return $?; fi
+            target="$(command wt "$@")"; st=$?
+            if [ $st -eq 0 ] && [ -n "$target" ]; then cd "$target"; else return $st; fi
+            ;;
+        rm)
+            # rm can delete the directory the shell is standing in (removing the
+            # current worktree, or a parent of cwd). In that case the binary
+            # prints a safe dir (the main clone) on stdout; cd there so the
+            # shell is not stranded in a deleted directory (which would then
+            # break `getwd` and any later git command, including `wt main`).
+            # The prompts (remove the worktree? delete its branch?) still work:
+            # they are written to stderr and stdin stays attached under the
+            # capture.
+            if _wt_wants_help "$@"; then command wt "$@"; return $?; fi
+            target="$(command wt "$@")"; st=$?
+            [ -n "$target" ] && cd "$target" && echo "wt: cd $target" >&2
+            return $st
+            ;;
+        *)
+            # Everything that does not change the shell's directory — list,
+            # no args (-> list), AND any unknown command (the binary then
+            # prints a proper "unrecognized subcommand" error) — is forwarded
+            # with stdio attached. (`list` handles its own -h directly here.)
+            command wt "$@"
+            ;;
+    esac
+}
+
+# If executed directly (not sourced), the function can't affect the parent
+# shell's cwd. Explain how to use it and exit gracefully.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    cat >&2 <<'EOF'
+wt-shell must be SOURCED, not executed — only a function running in your shell
+can change the shell's directory. It is normally sourced from ~/.bashrc:
+    source ~/.local/bin/wt-shell
+Then use the `wt` command, e.g. `wt main` or `wt add dev/fix-foo`
+(run `wt -h` for the full command list).
+Without sourcing, the plain `wt` binary still works — it just prints the
+resulting path instead of cd-ing to it.
+EOF
+    exit 0
+fi
