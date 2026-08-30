@@ -358,6 +358,49 @@ fn add_with_idea_flag_seeds_the_new_worktree() {
 }
 
 #[test]
+fn generate_config_prints_the_template_anywhere() {
+    let t = setup();
+    // Works even outside a repo, and is exempt from the leading-flag->list rewrite.
+    let out = wt(&t.dir, &["--generate-config"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let so = stdout(&out);
+    assert!(so.starts_with("# wt colour configuration."));
+    assert!(so.contains("[colour]"));
+}
+
+#[test]
+fn wt_config_env_overrides_a_colour_and_bad_keys_only_warn() {
+    let t = setup();
+    let cfg = t.dir.join("cfg.toml");
+    std::fs::write(&cfg, "[colour]\nheader = \"red\"\nbogus = \"blue\"\n").unwrap();
+
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_wt"))
+            .args(args)
+            .current_dir(t.repo())
+            .env("WT_CONFIG", &cfg)
+            .output()
+            .expect("run wt")
+    };
+
+    let out = run(&["list", "--color=always"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    // header now red (31), not the default bold cyan.
+    assert!(
+        stdout(&out).starts_with("\x1b[31mPATH"),
+        "got: {:?}",
+        stdout(&out)
+    );
+    // The unknown key is a warning on stderr, never a failure.
+    assert!(stderr(&out).contains("bogus"));
+
+    // With colour off the table is plain, but the mistake is still reported.
+    let out = run(&["list", "--color=never"]);
+    assert!(stdout(&out).starts_with("PATH"));
+    assert!(stderr(&out).contains("bogus"));
+}
+
+#[test]
 fn outside_a_repo_is_an_error() {
     let t = setup();
     // t.dir itself is the container, not a repo.

@@ -1,6 +1,7 @@
 //! Colour for `list`'s table. Every colour and threshold is a field of
-//! [`Theme`], never hard-coded at the paint site — the palette is meant to be
-//! tweaked (and later loaded from configuration).
+//! [`Theme`], never hard-coded at the paint site. The palette itself lives in
+//! `config::DEFAULT_CONFIG` (colours come from a config file and nowhere
+//! else); [`Theme::default`] is entirely unstyled.
 //!
 //! Widths are always computed from PLAIN cell text; painting wraps the text
 //! after padding is decided, so escapes can never enter a width calculation.
@@ -17,22 +18,29 @@ pub enum ColorWhen {
 }
 
 impl ColorWhen {
-    /// Auto = stdout is a terminal, NO_COLOR is unset, TERM is not "dumb".
+    /// Whether to colour, resolved as cargo (and slogs) do:
+    /// `CLICOLOR_FORCE` beats everything, then `NO_COLOR`, then whether
+    /// stdout is a terminal that claims to support colour.
     pub fn enabled(self) -> bool {
         use std::io::IsTerminal;
         match self {
             ColorWhen::Always => true,
             ColorWhen::Never => false,
             ColorWhen::Auto => {
-                std::io::stdout().is_terminal()
-                    && std::env::var_os("NO_COLOR").is_none()
-                    && std::env::var_os("TERM").is_none_or(|t| t != "dumb")
+                if anstyle_query::clicolor_force() {
+                    return true;
+                }
+                if anstyle_query::no_color() {
+                    return false;
+                }
+                std::io::stdout().is_terminal() && anstyle_query::term_supports_color()
             }
         }
     }
 }
 
 /// The palette and the thresholds that pick between its entries.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     pub header: Style,
 
@@ -75,37 +83,124 @@ pub struct Theme {
 
 const GIB: u64 = 1 << 30;
 
-/// The built-in defaults, written in the same style-spec grammar a future
-/// config file will use (the slogs grammar: attributes and one colour per
-/// spec, in any order).
+/// Entirely unstyled, with the standard thresholds. The actual default
+/// palette comes from parsing `config::DEFAULT_CONFIG` (see `config::defaults`)
+/// so the template and the built-in colours cannot drift apart.
 impl Default for Theme {
     fn default() -> Self {
-        let s = |spec: &str| parse_style(spec).expect("built-in style spec");
         Theme {
-            header: s("cyan bold"),
-            path: s("bright-white"),
-            branch: s("white"),
-            marker_brackets: s("bright-white"),
-            marker_main: s("bright-yellow"),
-            marker_cwd: s("bright-green"),
-            size: s("bright-white"),
-            size_warn: s("bright-yellow"),
-            size_alert: s("bright-red"),
+            header: Style::new(),
+            path: Style::new(),
+            branch: Style::new(),
+            marker_brackets: Style::new(),
+            marker_main: Style::new(),
+            marker_cwd: Style::new(),
+            size: Style::new(),
+            size_warn: Style::new(),
+            size_alert: Style::new(),
             size_warn_bytes: GIB,
             size_alert_bytes: 10 * GIB,
-            status_clean: s("green"),
-            status_mod: s("red"),
-            status_untr: s("yellow"),
-            merged_ok: s("green"),
-            merged_unmerged: s("yellow"),
-            upstream_ok: s("green"),
-            upstream_none: s("white"),
-            last_fresh: s("green"),
-            last_aging: s("yellow"),
-            last_old: s("red"),
+            status_clean: Style::new(),
+            status_mod: Style::new(),
+            status_untr: Style::new(),
+            merged_ok: Style::new(),
+            merged_unmerged: Style::new(),
+            upstream_ok: Style::new(),
+            upstream_none: Style::new(),
+            last_fresh: Style::new(),
+            last_aging: Style::new(),
+            last_old: Style::new(),
             last_fresh_days: 3,
             last_aging_days: 7,
         }
+    }
+}
+
+impl Theme {
+    /// The mutable style behind a config key. The key vocabulary is defined by
+    /// `config::KEYS`; a test there asserts the two stay in sync.
+    pub fn slot(&mut self, key: &str) -> Option<&mut Style> {
+        Some(match key {
+            "header" => &mut self.header,
+            "path" => &mut self.path,
+            "branch" => &mut self.branch,
+            "marker-brackets" => &mut self.marker_brackets,
+            "marker-main" => &mut self.marker_main,
+            "marker-cwd" => &mut self.marker_cwd,
+            "size" => &mut self.size,
+            "size-warn" => &mut self.size_warn,
+            "size-alert" => &mut self.size_alert,
+            "status-clean" => &mut self.status_clean,
+            "status-modified" => &mut self.status_mod,
+            "status-untracked" => &mut self.status_untr,
+            "merged" => &mut self.merged_ok,
+            "unmerged" => &mut self.merged_unmerged,
+            "upstream-ok" => &mut self.upstream_ok,
+            "upstream-none" => &mut self.upstream_none,
+            "last-fresh" => &mut self.last_fresh,
+            "last-aging" => &mut self.last_aging,
+            "last-old" => &mut self.last_old,
+            _ => return None,
+        })
+    }
+
+    /// Replace every 24-bit colour with the nearest 256-palette entry.
+    ///
+    /// Called when the terminal does not advertise truecolor, because
+    /// `anstyle` renders whatever it is given rather than degrading.
+    pub fn approximate_rgb(&mut self) {
+        for key in crate::config::KEYS {
+            let slot = self.slot(key).expect("KEYS and slot() are in sync");
+            *slot = downgrade(*slot);
+        }
+    }
+}
+
+fn downgrade(style: Style) -> Style {
+    match style.get_fg_color() {
+        Some(Color::Rgb(RgbColor(r, g, b))) => {
+            style.fg_color(Some(Color::Ansi256(Ansi256Color(rgb_to_ansi256(r, g, b)))))
+        }
+        _ => style,
+    }
+}
+
+/// Nearest 256-palette entry to a 24-bit colour (ported from slogs).
+///
+/// Considers both the 6×6×6 colour cube and the 24-step greyscale ramp and
+/// takes whichever is closer, which matters for near-grey colours that the
+/// cube renders badly.
+fn rgb_to_ansi256(r: u8, g: u8, b: u8) -> u8 {
+    /// The six levels the cube samples each channel at.
+    const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+
+    let nearest_level = |v: u8| -> usize {
+        LEVELS
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, l)| l.abs_diff(v))
+            .map(|(i, _)| i)
+            .unwrap_or(0)
+    };
+    let distance = |a: (u8, u8, u8), b: (u8, u8, u8)| -> u32 {
+        let d = |x: u8, y: u8| (x.abs_diff(y) as u32).pow(2);
+        d(a.0, b.0) + d(a.1, b.1) + d(a.2, b.2)
+    };
+
+    let (ri, gi, bi) = (nearest_level(r), nearest_level(g), nearest_level(b));
+    let cube_rgb = (LEVELS[ri], LEVELS[gi], LEVELS[bi]);
+    let cube_index = 16 + 36 * ri + 6 * gi + bi;
+
+    // Greyscale ramp: 232..=255 covers 8, 18, 28, ... 238.
+    let average = ((r as u16 + g as u16 + b as u16) / 3) as u8;
+    let step = ((average.saturating_sub(8) as u16 * 24) / 247).min(23) as u8;
+    let grey_level = 8 + step * 10;
+    let grey_index = 232 + step as usize;
+
+    if distance((r, g, b), (grey_level, grey_level, grey_level)) < distance((r, g, b), cube_rgb) {
+        grey_index as u8
+    } else {
+        cube_index as u8
     }
 }
 
@@ -357,7 +452,7 @@ mod tests {
 
     #[test]
     fn thresholds_pick_the_right_style() {
-        let t = Theme::default();
+        let t = crate::config::defaults();
         assert!(t.paint("SIZE", "80M").contains(&t.size.to_string()));
         assert!(t.paint("SIZE", "1.2G").contains(&t.size_warn.to_string()));
         assert!(t.paint("SIZE", "12G").contains(&t.size_alert.to_string()));
@@ -377,7 +472,7 @@ mod tests {
 
     #[test]
     fn status_parts_are_painted_separately() {
-        let t = Theme::default();
+        let t = crate::config::defaults();
         let out = t.paint("STATUS", "2 mod, 1 untr");
         assert!(out.contains(&t.status_mod.to_string()));
         assert!(out.contains(&t.status_untr.to_string()));
@@ -412,23 +507,24 @@ mod tests {
     }
 
     #[test]
-    fn default_theme_matches_the_agreed_palette() {
-        let t = Theme::default();
-        assert_eq!(t.header, parse_style("cyan bold").unwrap());
-        assert_eq!(t.path, parse_style("bright-white").unwrap());
-        assert_eq!(t.branch, parse_style("white").unwrap());
-        assert_eq!(t.marker_brackets, parse_style("bright-white").unwrap());
-        assert_eq!(t.marker_main, parse_style("bright-yellow").unwrap());
-        assert_eq!(t.marker_cwd, parse_style("bright-green").unwrap());
-        assert_eq!(t.size, parse_style("bright-white").unwrap());
-        assert_eq!(t.size_warn, parse_style("bright-yellow").unwrap());
-        assert_eq!(t.size_alert, parse_style("bright-red").unwrap());
-        assert_eq!(t.merged_unmerged, parse_style("yellow").unwrap());
+    fn rgb_downgrade_hits_the_nearest_palette_entry() {
+        // Pure grey lands on the greyscale ramp, a saturated colour on the cube.
+        assert_eq!(rgb_to_ansi256(0xff, 0x87, 0x00), 208); // DarkOrange
+        let mut t = Theme::default();
+        *t.slot("path").unwrap() = parse_style("#ff8700").unwrap();
+        *t.slot("branch").unwrap() = parse_style("green").unwrap();
+        t.approximate_rgb();
+        assert_eq!(
+            t.path.get_fg_color(),
+            Some(Color::Ansi256(Ansi256Color(208)))
+        );
+        // Non-RGB colours are untouched.
+        assert_eq!(t.branch, parse_style("green").unwrap());
     }
 
     #[test]
     fn unknown_values_pass_through_unpainted() {
-        let t = Theme::default();
+        let t = crate::config::defaults();
         for (h, c) in [
             ("SIZE", "?"),
             ("MERGED", "?"),

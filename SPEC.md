@@ -207,11 +207,7 @@ list options work without typing `list`.
   Unknown cell values (`-`, `?`) are never painted. Column widths are computed
   from plain text before painting, so escapes cannot affect alignment.
 
-  Styles are written and parsed in the slogs style-spec grammar (attributes and
-  at most one colour per spec, order-free: `"cyan bold"`, `"bright-white"`,
-  `"196 italic"`, `"#ff8700"`), so the planned config file will share slogs'
-  colour vocabulary. xterm palette names (`MistyRose1`, …) are not accepted
-  yet; they arrive with the config file.
+  The palette is configurable — see **Configuration** below.
 
 This command's stdout IS its output (table/porcelain).
 
@@ -251,6 +247,38 @@ SUBSTRING match on either.
 - unique → print the worktree path to stdout, exit 0
 - ambiguous → list "branch → path" candidates to stderr, exit 2
 - none → error to stderr (with a `wt add QUERY` hint), exit 1
+
+## Configuration
+
+Colours only, for now (thresholds and other behaviour are not configurable).
+The model is slogs': colours come from a config file and nowhere else; a
+missing file is normal and means the built-in defaults.
+
+- **Location**: `$WT_CONFIG`, else `$XDG_CONFIG_HOME/wt/config.toml`, else
+  `~/.config/wt/config.toml`.
+- **`wt --generate-config`** prints the built-in configuration on stdout (never
+  writes a file). It is the single source of truth: the built-in defaults are
+  produced by parsing that same template, so the two cannot drift.
+- **Format**: TOML, one `[colour]` table (`[color]` is accepted too). Keys:
+  `header`, `path`, `branch`, `marker-brackets`, `marker-main`, `marker-cwd`,
+  `size`, `size-warn`, `size-alert`, `status-clean`, `status-modified`,
+  `status-untracked`, `merged`, `unmerged`, `upstream-ok`, `upstream-none`,
+  `last-fresh`, `last-aging`, `last-old`. There is deliberately no
+  `[colour.values]`-style section.
+- **Style specs** use the slogs grammar: one string per key, space-separated
+  attributes (`bold dim italic underline reverse`) plus at most one colour —
+  an ANSI name (`red`, `bright-white`, …), a 0-255 palette index, or
+  `#rrggbb`/`#rgb` hex — in any order; `default` means the terminal's own
+  foreground. Hex is approximated to the nearest 256-palette entry on
+  terminals without truecolor. xterm palette names (`MistyRose1`, …) are not
+  accepted yet.
+- **A user config overlays the defaults key by key**: setting one colour
+  leaves every other default in place.
+- **Problems are warnings, never failures**: unknown sections/keys, bad
+  specs, unreadable or invalid TOML each print a `wt:` warning on stderr (even
+  when colour is off) and the listing still runs.
+- `--color auto` resolution follows cargo: `CLICOLOR_FORCE` beats everything,
+  then `NO_COLOR`, then whether stdout is a terminal that supports colour.
 
 ## The shell function (wt-shell)
 

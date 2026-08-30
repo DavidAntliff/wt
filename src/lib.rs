@@ -14,6 +14,7 @@
 //! Full spec: SPEC.md.
 
 pub mod commands;
+pub mod config;
 pub mod git;
 pub mod theme;
 pub mod worktree;

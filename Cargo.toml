@@ -16,4 +16,6 @@ path = "src/main.rs"
 
 [dependencies]
 anstyle = "1"
+anstyle-query = "1"
 clap = { version = "4", features = ["derive"] }
+toml = { version = "1", default-features = false, features = ["parse", "serde"] }

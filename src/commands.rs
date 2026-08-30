@@ -645,7 +645,21 @@ pub fn list(opts: &ListOpts) -> Result<()> {
         headers.extend(["STATUS", "MERGED", "UPSTREAM", "LAST"]);
     }
 
-    let theme = opts.color.enabled().then(Theme::default);
+    // The file is read even when colour is off so that a mistake in it is
+    // reported; only the resulting styles are discarded.
+    let loaded = crate::config::load();
+    for warning in &loaded.warnings {
+        info!("wt: {warning}");
+    }
+    let theme = opts.color.enabled().then(|| {
+        let mut theme = loaded.theme;
+        // anstyle renders whatever it is given, so 24-bit colours have to be
+        // brought down to the palette by hand on a terminal without truecolor.
+        if !anstyle_query::truecolor() {
+            theme.approximate_rgb();
+        }
+        theme
+    });
     let rows: Vec<(Vec<String>, String)> = trees
         .iter()
         .map(|wt| {
@@ -894,7 +908,7 @@ mod tests {
             ),
         ];
         let plain = format_table(&headers, &rows, None);
-        let painted = format_table(&headers, &rows, Some(&Theme::default()));
+        let painted = format_table(&headers, &rows, Some(&crate::config::defaults()));
         assert_ne!(plain, painted);
         assert_eq!(strip_ansi(&painted), plain);
     }

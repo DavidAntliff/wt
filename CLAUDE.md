@@ -64,15 +64,19 @@ default live in `main.rs`, before clap parses.
   behaviour must stay identical between them.
 - `commands.rs` — the commands, plus `list`'s helpers (`git_info`, `dir_size`,
   `format_table`, `relpath`).
-- `theme.rs` — `--color` handling and the `Theme` struct. Every colour AND threshold
-  (size warn/alert bytes, LAST age bands) is a `Theme` field — the palette is meant to
-  be tweaked and later loaded from configuration, so never hard-code a colour or a
-  cutoff at a paint site. Defaults are written as style-spec strings run through
-  `parse_style`, which is deliberately the same grammar as slogs' config
-  (`"cyan bold"`, `"bright-white"`, a 0-255 index, `#rrggbb`) — the planned config
-  file will reuse it, so keep the grammar in lock-step with slogs rather than
-  inventing local extensions. slogs' xterm-name table (`MistyRose1`, …) is not
-  ported yet; lift it verbatim when the config file lands. **Escapes must never enter a width calculation**:
+- `theme.rs` — `--color` handling, the `Theme` struct, `parse_style`. Every colour AND
+  threshold (size warn/alert bytes, LAST age bands) is a `Theme` field — never
+  hard-code a colour or a cutoff at a paint site. **`Theme::default()` is entirely
+  unstyled**; the actual palette lives ONLY in `config::DEFAULT_CONFIG`.
+- `config.rs` — the colour config file, modelled on slogs'. `DEFAULT_CONFIG` is the
+  single source of truth: `--generate-config` prints it and the built-in defaults come
+  from parsing it, so they cannot drift (a test enforces this, and that every key in
+  `KEYS` appears in the template and has a `Theme::slot`). Config problems are
+  warnings on stderr, never failures. The style-spec grammar is deliberately slogs'
+  (`"cyan bold"`, a 0-255 index, `#rrggbb`) — keep it in lock-step rather than
+  inventing local extensions; slogs' xterm-name table (`MistyRose1`, …) is not ported
+  yet, lift it verbatim if names are wanted. Thresholds are NOT configurable yet, and
+  there is deliberately no `[colour.values]`-style section. **Escapes must never enter a width calculation**:
   `format_table` pads from plain cell text and paints afterwards;
   `alignment_is_unaffected_by_colour` is the test that catches violations. Porcelain
   output is never coloured.

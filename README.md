@@ -48,6 +48,14 @@ The table is coloured when stdout is a terminal (green = safe / fresh, yellow =
 attention, red = work you'd lose); `--color always|never|auto` overrides, and
 `NO_COLOR` is respected.
 
+Every colour can be changed in `~/.config/wt/config.toml` (or `$WT_CONFIG`).
+`wt --generate-config` prints a fully commented template — the built-in
+defaults — to copy there and edit:
+
+```sh
+mkdir -p ~/.config/wt && wt --generate-config > ~/.config/wt/config.toml
+```
+
 ## Install
 
 Two pieces: the `wt` binary (Rust) and the `wt` shell function that wraps it

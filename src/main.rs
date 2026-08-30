@@ -15,6 +15,11 @@ use wt::theme::ColorWhen;
 struct Cli {
     #[command(subcommand)]
     command: Option<Cmd>,
+
+    /// Print the built-in colour configuration on stdout and exit. Never
+    /// writes a file.
+    #[arg(long = "generate-config", exclusive = true)]
+    generate_config: bool,
 }
 
 #[derive(Subcommand)]
@@ -104,12 +109,19 @@ fn main() {
     let mut argv: Vec<String> = std::env::args().collect();
     if let Some(first) = argv.get(1)
         && first.starts_with('-')
-        && !matches!(first.as_str(), "-h" | "--help" | "-V" | "--version")
+        && !matches!(
+            first.as_str(),
+            "-h" | "--help" | "-V" | "--version" | "--generate-config"
+        )
     {
         argv.insert(1, "list".to_string());
     }
 
     let cli = Cli::parse_from(argv);
+    if cli.generate_config {
+        print!("{}", wt::config::DEFAULT_CONFIG);
+        return;
+    }
     // Bare `wt` (no subcommand) defaults to the worktree list.
     let result = match cli.command {
         None => commands::list(&ListOpts::default()),
