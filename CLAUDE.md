@@ -75,8 +75,9 @@ default live in `main.rs`, before clap parses.
   warnings on stderr, never failures. The style-spec grammar is deliberately slogs'
   (`"cyan bold"`, a 0-255 index, `#rrggbb`) — keep it in lock-step rather than
   inventing local extensions; slogs' xterm-name table (`MistyRose1`, …) is not ported
-  yet, lift it verbatim if names are wanted. Thresholds are NOT configurable yet, and
-  there is deliberately no `[colour.values]`-style section. **Escapes must never enter a width calculation**:
+  yet, lift it verbatim if names are wanted. `[thresholds]` configures the SIZE
+  (MiB) and LAST (days) cutoffs; there is deliberately no `[colour.values]`-style
+  section. **Escapes must never enter a width calculation**:
   `format_table` pads from plain cell text and paints afterwards;
   `alignment_is_unaffected_by_colour` is the test that catches violations. Porcelain
   output is never coloured.

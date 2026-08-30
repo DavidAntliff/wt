@@ -87,9 +87,16 @@ upstream-ok      = "green"          # in sync with the tracking ref
 upstream-none    = "white"          # no upstream
 
 # LAST (with -g), by the age of the last commit.
-last-fresh       = "green"          # 3 days old or newer
-last-aging       = "yellow"         # under a week
-last-old         = "red"            # a week or older
+last-fresh       = "green"          # up to last-fresh days old
+last-aging       = "yellow"         # older than that, under last-aging days
+last-old         = "red"            # last-aging days old or more
+
+# Where the SIZE and LAST colours switch over. Whole numbers.
+[thresholds]
+size-warn        = 1024             # MiB; SIZE bigger than this is size-warn
+size-alert       = 10240            # MiB; SIZE bigger than this is size-alert
+last-fresh       = 3                # days; this old or newer is last-fresh
+last-aging       = 7                # days; this old or older is last-old
 "##;
 
 /// Every key accepted under `[colour]`.
@@ -114,6 +121,11 @@ pub const KEYS: &[&str] = &[
     "last-aging",
     "last-old",
 ];
+
+/// Every key accepted under `[thresholds]`. `size-*` are MiB, `last-*` days.
+pub const THRESHOLD_KEYS: &[&str] = &["size-warn", "size-alert", "last-fresh", "last-aging"];
+
+const MIB: u64 = 1 << 20;
 
 /// The result of loading configuration. Problems are warnings, never
 /// failures: a broken config must not stop a listing from running.
@@ -202,6 +214,13 @@ fn parse_over(text: &str, theme: &mut Theme) -> Vec<String> {
     };
 
     for (section, value) in &table {
+        if section == "thresholds" {
+            match value.as_table() {
+                Some(thresholds) => parse_thresholds(thresholds, theme, &mut warnings),
+                None => warnings.push("[thresholds] should be a table".to_string()),
+            }
+            continue;
+        }
         // "color" is accepted alongside "colour" so the spelling is never a trap.
         if section != "colour" && section != "color" {
             warnings.push(format!("unknown section [{section}]"));
@@ -230,6 +249,31 @@ fn parse_over(text: &str, theme: &mut Theme) -> Vec<String> {
     }
 
     warnings
+}
+
+fn parse_thresholds(table: &toml::Table, theme: &mut Theme, warnings: &mut Vec<String>) {
+    for (key, value) in table {
+        if !THRESHOLD_KEYS.contains(&key.as_str()) {
+            warnings.push(format!("unknown key {key:?} in [thresholds]"));
+            continue;
+        }
+        let n = match value.as_integer() {
+            Some(n) if n >= 0 => n as u64,
+            _ => {
+                warnings.push(format!(
+                    "thresholds.{key} should be a whole non-negative number"
+                ));
+                continue;
+            }
+        };
+        match key.as_str() {
+            "size-warn" => theme.size_warn_bytes = n * MIB,
+            "size-alert" => theme.size_alert_bytes = n * MIB,
+            "last-fresh" => theme.last_fresh_days = n,
+            "last-aging" => theme.last_aging_days = n,
+            _ => unreachable!("key was checked against THRESHOLD_KEYS"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -283,6 +327,37 @@ mod tests {
         assert_eq!(t.last_fresh, s("green"));
         assert_eq!(t.last_aging, s("yellow"));
         assert_eq!(t.last_old, s("red"));
+        // Thresholds: 1024 / 10240 MiB, 3 / 7 days.
+        assert_eq!(t.size_warn_bytes, 1 << 30);
+        assert_eq!(t.size_alert_bytes, 10 << 30);
+        assert_eq!(t.last_fresh_days, 3);
+        assert_eq!(t.last_aging_days, 7);
+    }
+
+    #[test]
+    fn thresholds_can_be_overridden() {
+        let mut theme = defaults();
+        let warnings = parse_over(
+            "[thresholds]\nsize-warn = 512\nlast-aging = 14\n",
+            &mut theme,
+        );
+        assert_eq!(warnings, Vec::<String>::new());
+        assert_eq!(theme.size_warn_bytes, 512 << 20);
+        assert_eq!(theme.last_aging_days, 14);
+        // Unmentioned thresholds keep their defaults.
+        assert_eq!(theme.size_alert_bytes, 10 << 30);
+        assert_eq!(theme.last_fresh_days, 3);
+    }
+
+    #[test]
+    fn bad_thresholds_warn_and_change_nothing() {
+        let mut theme = defaults();
+        let warnings = parse_over(
+            "[thresholds]\nsize-warn = \"big\"\nlast-fresh = -1\nbogus = 3\n",
+            &mut theme,
+        );
+        assert_eq!(warnings.len(), 3);
+        assert_eq!(theme, defaults());
     }
 
     #[test]

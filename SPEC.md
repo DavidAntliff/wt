@@ -250,9 +250,9 @@ SUBSTRING match on either.
 
 ## Configuration
 
-Colours only, for now (thresholds and other behaviour are not configurable).
-The model is slogs': colours come from a config file and nowhere else; a
-missing file is normal and means the built-in defaults.
+Colours and the SIZE/LAST thresholds, for now. The model is slogs': they come
+from a config file and nowhere else; a missing file is normal and means the
+built-in defaults.
 
 - **Location**: `$WT_CONFIG`, else `$XDG_CONFIG_HOME/wt/config.toml`, else
   `~/.config/wt/config.toml`.
@@ -265,6 +265,12 @@ missing file is normal and means the built-in defaults.
   `status-untracked`, `merged`, `unmerged`, `upstream-ok`, `upstream-none`,
   `last-fresh`, `last-aging`, `last-old`. There is deliberately no
   `[colour.values]`-style section.
+- **`[thresholds]`** holds where the SIZE and LAST colours switch over, as
+  whole non-negative numbers: `size-warn` (MiB, default 1024) and `size-alert`
+  (MiB, default 10240) — SIZE bigger than these uses the warn/alert colour —
+  and `last-fresh` (days, default 3: this old or newer is fresh) and
+  `last-aging` (days, default 7: this old or older is old; between the two is
+  aging).
 - **Style specs** use the slogs grammar: one string per key, space-separated
   attributes (`bold dim italic underline reverse`) plus at most one colour —
   an ANSI name (`red`, `bright-white`, …), a 0-255 palette index, or
