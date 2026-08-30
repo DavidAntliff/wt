@@ -339,11 +339,12 @@ fn du_bytes(s: &str) -> Option<u64> {
 }
 
 /// Approximate age in days of a `git log --format=%cr` string
-/// ("3 days ago", "10 minutes ago", "2 weeks ago").
+/// ("3 days ago", "10 minutes ago", "2 years, 8 months ago" — combined forms
+/// keep only the leading quantity, which is precise enough for the age bands).
 fn relative_days(s: &str) -> Option<u64> {
     let mut words = s.split_whitespace();
     let n: u64 = words.next()?.parse().ok()?;
-    let unit = words.next()?.trim_end_matches('s');
+    let unit = words.next()?.trim_end_matches(',').trim_end_matches('s');
     Some(match unit {
         "second" | "minute" | "hour" => 0,
         "day" => n,
@@ -458,6 +459,9 @@ mod tests {
         assert_eq!(relative_days("6 days ago"), Some(6));
         assert_eq!(relative_days("2 weeks ago"), Some(14));
         assert_eq!(relative_days("4 months ago"), Some(120));
+        // Combined forms: only the leading quantity counts.
+        assert_eq!(relative_days("1 year, 2 months ago"), Some(365));
+        assert_eq!(relative_days("2 years, 8 months ago"), Some(730));
         assert_eq!(relative_days("-"), None);
     }
 

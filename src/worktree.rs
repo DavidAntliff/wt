@@ -60,15 +60,15 @@ pub fn list(cwd: &Path) -> Result<Vec<Worktree>> {
     let mut trees = parse_porcelain(&out);
     // Abbreviate the commit of every detached worktree, for its list label. Via
     // `rev-parse --short` rather than a fixed slice, so it honours core.abbrev
-    // and grows as far as this repo needs for uniqueness.
+    // and grows as far as this repo needs for uniqueness. Tolerant: a failed
+    // query (e.g. a prunable worktree whose commit is gone) leaves `short`
+    // empty and the label falls back to "(detached)" — it must never abort
+    // the listing.
     for wt in &mut trees {
         if wt.detached
             && let Some(head) = &wt.head
         {
-            wt.short = Some(git::capture(
-                &["git", "rev-parse", "--short", head],
-                Some(cwd),
-            )?);
+            wt.short = git::query(&["git", "rev-parse", "--short", head], Some(cwd));
         }
     }
     Ok(trees)
