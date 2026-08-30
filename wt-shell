@@ -45,6 +45,36 @@ sourced function rather than a plain program. For a command's own options, run
 EOF
 }
 
+# Print "$1" to stderr as a cyan `wt:` narration line, matching the binary's
+# narration colour. The remaining arguments are the command's args, scanned
+# for the global --color; `auto` then follows the binary's stderr rule
+# (CLICOLOR_FORCE beats NO_COLOR beats stderr-is-a-colour-terminal).
+_wt_info() {
+    local msg=$1 when=auto prev= a on=
+    shift
+    for a in "$@"; do
+        case "$a" in
+            --color=*) when=${a#--color=} ;;
+            *) [ "$prev" = --color ] && when=$a ;;
+        esac
+        prev=$a
+    done
+    case "$when" in
+        always) on=1 ;;
+        never) ;;
+        *)
+            if [ -n "${CLICOLOR_FORCE:-}" ]; then on=1
+            elif [ -z "${NO_COLOR:-}" ] && [ -t 2 ] && [ "${TERM:-}" != dumb ]; then on=1
+            fi
+            ;;
+    esac
+    if [ -n "$on" ]; then
+        printf '\033[36m%s\033[0m\n' "$msg" >&2
+    else
+        printf '%s\n' "$msg" >&2
+    fi
+}
+
 # True if any argument is a help flag (-h/--help).
 _wt_wants_help() {
     local a
@@ -106,7 +136,7 @@ wt() {
             # capture.
             if _wt_wants_help "$@"; then command wt "$@"; return $?; fi
             target="$(command wt "$@")"; st=$?
-            [ -n "$target" ] && cd "$target" && echo "wt: cd $target" >&2
+            [ -n "$target" ] && cd "$target" && _wt_info "wt: cd $target" "$@"
             return $st
             ;;
         *)

@@ -63,9 +63,9 @@ fn wt(cwd: &Path, args: &[&str]) -> Output {
     wt_with_config(cwd, Path::new("/nonexistent/wt-test-config.toml"), args)
 }
 
-fn wt_with_config(cwd: &Path, config: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_wt"))
-        .args(args)
+fn wt_cmd(cwd: &Path, config: &Path, args: &[&str]) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_wt"));
+    cmd.args(args)
         .current_dir(cwd)
         .env("WT_CONFIG", config)
         // Modern git blocks file-protocol submodules by default; allow them
@@ -75,9 +75,30 @@ fn wt_with_config(cwd: &Path, config: &Path, args: &[&str]) -> Output {
         .env("GIT_CONFIG_VALUE_0", "always")
         // Colour assertions must not depend on the developer's environment.
         .env_remove("NO_COLOR")
-        .env_remove("CLICOLOR_FORCE")
-        .output()
-        .expect("run wt")
+        .env_remove("CLICOLOR_FORCE");
+    cmd
+}
+
+fn wt_with_config(cwd: &Path, config: &Path, args: &[&str]) -> Output {
+    wt_cmd(cwd, config, args).output().expect("run wt")
+}
+
+/// Run wt with `input` piped to stdin (for the interactive prompts).
+fn wt_stdin(cwd: &Path, args: &[&str], input: &str) -> Output {
+    use std::io::Write;
+    let mut child = wt_cmd(cwd, Path::new("/nonexistent/wt-test-config.toml"), args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn wt");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().expect("run wt")
 }
 
 fn stdout(out: &Output) -> String {
@@ -410,6 +431,19 @@ fn narration_colour_honours_the_global_color_option() {
     let out = wt(&t.repo(), &["add", "plain"]);
     assert!(out.status.success(), "{}", stderr(&out));
     assert!(!stderr(&out).contains('\u{1b}'));
+
+    // Interactive prompts are bright magenta ("n" aborts, exit 1).
+    let out = wt_stdin(
+        &t.repo().parent().unwrap().join("wt-repo-plain.git"),
+        &["rm", "--color", "always"],
+        "n\n",
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("\u{1b}[95mRemove this worktree? [y/N]"),
+        "{:?}",
+        stderr(&out)
+    );
 }
 
 #[test]

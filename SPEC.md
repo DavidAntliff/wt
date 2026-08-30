@@ -234,6 +234,11 @@ deliberately NOT configurable, unlike the table palette:
 | warnings (submodules skipped, config problems, branch NOT deleted, …) | bright-yellow |
 | the final `wt: worktree ready` line | bright-cyan |
 | fatal errors (the `wt: <msg>` line before a non-zero exit, ambiguous-match headers) | bright-red |
+| interactive y/N prompts | bright-magenta |
+
+The one narration line printed by wt-shell itself (`wt: cd <dir>` after `rm`
+moves the shell to safety) follows the same rule: cyan, honouring a `--color`
+among the args and the same stderr-auto resolution.
 
 ### main
 

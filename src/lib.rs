@@ -64,16 +64,24 @@ pub mod narration {
     pub const NOTICE: Style = AnsiColor::BrightYellow.on_default();
     /// Fatal errors (the `wt: <msg>` line printed just before a non-zero exit).
     pub const ERROR: Style = AnsiColor::BrightRed.on_default();
+    /// Interactive y/N prompts — the "stop reading, decide" moments.
+    pub const PROMPT: Style = AnsiColor::BrightMagenta.on_default();
+}
+
+/// Wrap `text` in `style` if narration colour is on (for non-line uses like
+/// prompts; whole lines go through [`narrate`]).
+pub fn painted(style: anstyle::Style, text: &str) -> String {
+    if NARRATION_COLOUR.load(std::sync::atomic::Ordering::Relaxed) {
+        format!("{style}{text}{}", style.render_reset())
+    } else {
+        text.to_string()
+    }
 }
 
 /// Print one narration line to stderr, painted if narration colour is on.
 #[doc(hidden)]
 pub fn narrate(style: anstyle::Style, text: &str) {
-    if NARRATION_COLOUR.load(std::sync::atomic::Ordering::Relaxed) {
-        eprintln!("{style}{text}{}", style.render_reset());
-    } else {
-        eprintln!("{text}");
-    }
+    eprintln!("{}", painted(style, text));
 }
 
 /// Human narration -> stderr, so stdout stays reserved for the result path.

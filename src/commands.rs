@@ -47,7 +47,10 @@ fn cwd() -> Result<PathBuf> {
 
 /// Prompt on stderr, read a y/yes answer from stdin (EOF -> no).
 fn confirm(prompt: &str) -> bool {
-    eprint!("{prompt} [y/N] ");
+    eprint!(
+        "{} ",
+        crate::painted(crate::narration::PROMPT, &format!("{prompt} [y/N]"))
+    );
     std::io::stderr().flush().ok();
     let mut reply = String::new();
     std::io::stdin().lock().read_line(&mut reply).ok();
