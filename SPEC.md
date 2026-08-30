@@ -24,9 +24,9 @@ created as SIBLINGS of the main clone:
 
 ```
 ~/work/
-  repo/                      # the main clone
-  wt-repo-dev-fix-foo.git/ # worktree for branch dev/fix-foo
-  wt-repo-v1.2.3.git/        # detached worktree at tag v1.2.3
+  repo/                     # the main clone
+  wt-repo-dev-fix-foo.git/  # worktree for branch dev/fix-foo
+  wt-repo-v1.2.3.git/       # detached worktree at tag v1.2.3
 ```
 
 The main clone is always found as the parent of the shared `.git` directory

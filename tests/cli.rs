@@ -131,10 +131,7 @@ fn add_creates_sibling_worktree_and_prints_only_the_path() {
         .current_dir(&path)
         .output()
         .unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&head.stdout).trim(),
-        "dev/fix-foo"
-    );
+    assert_eq!(String::from_utf8_lossy(&head.stdout).trim(), "dev/fix-foo");
 }
 
 #[test]

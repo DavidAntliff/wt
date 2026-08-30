@@ -895,22 +895,15 @@ mod tests {
                 "[main] [cwd]".to_string(),
             ),
             (
-                vec![
-                    "../wt-repo-foo.git".into(),
-                    "dev/foo".into(),
-                    "80M".into(),
-                ],
+                vec!["../wt-repo-foo.git".into(), "dev/foo".into(), "80M".into()],
                 String::new(),
             ),
         ];
         let out = format_table(&headers, &rows, None);
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines[0], "PATH                BRANCH     SIZE");
+        assert_eq!(lines[0], "PATH                BRANCH   SIZE");
         // SIZE right-aligned, markers appended, no trailing whitespace.
-        assert_eq!(
-            lines[1],
-            "../repo             main       1.2G  [main] [cwd]"
-        );
+        assert_eq!(lines[1], "../repo             main     1.2G  [main] [cwd]");
         assert_eq!(lines[2], "../wt-repo-foo.git  dev/foo   80M");
         assert!(out.lines().all(|l| l == l.trim_end()));
     }
