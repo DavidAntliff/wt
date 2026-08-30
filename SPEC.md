@@ -194,18 +194,24 @@ list options work without typing `list`.
 
   | element | colour |
   |---------|--------|
-  | column headers | cyan |
-  | PATH | white |
-  | BRANCH | red italic |
-  | marker brackets `[]` | white; `main` yellow, `cwd` green |
-  | SIZE | white; > 1 GiB yellow; > 10 GiB red |
+  | column headers | cyan bold |
+  | PATH | bright-white |
+  | BRANCH | white |
+  | marker brackets `[]` | bright-white; `main` bright-yellow, `cwd` bright-green |
+  | SIZE | bright-white; > 1 GiB bright-yellow; > 10 GiB bright-red |
   | STATUS | `clean` green; `N mod` red; `N untr` yellow (parts painted separately) |
-  | MERGED | `merged` green; `+N` red |
+  | MERGED | `merged` green; `+N` yellow |
   | UPSTREAM | `ok` green; `none` white; ahead/behind unpainted |
   | LAST | ≤ 3 days green; < 1 week yellow; ≥ 1 week red |
 
   Unknown cell values (`-`, `?`) are never painted. Column widths are computed
   from plain text before painting, so escapes cannot affect alignment.
+
+  Styles are written and parsed in the slogs style-spec grammar (attributes and
+  at most one colour per spec, order-free: `"cyan bold"`, `"bright-white"`,
+  `"196 italic"`, `"#ff8700"`), so the planned config file will share slogs'
+  colour vocabulary. xterm palette names (`MistyRose1`, …) are not accepted
+  yet; they arrive with the config file.
 
 This command's stdout IS its output (table/porcelain).
 

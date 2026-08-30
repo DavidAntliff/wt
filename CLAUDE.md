@@ -67,7 +67,12 @@ default live in `main.rs`, before clap parses.
 - `theme.rs` — `--color` handling and the `Theme` struct. Every colour AND threshold
   (size warn/alert bytes, LAST age bands) is a `Theme` field — the palette is meant to
   be tweaked and later loaded from configuration, so never hard-code a colour or a
-  cutoff at a paint site. **Escapes must never enter a width calculation**:
+  cutoff at a paint site. Defaults are written as style-spec strings run through
+  `parse_style`, which is deliberately the same grammar as slogs' config
+  (`"cyan bold"`, `"bright-white"`, a 0-255 index, `#rrggbb`) — the planned config
+  file will reuse it, so keep the grammar in lock-step with slogs rather than
+  inventing local extensions. slogs' xterm-name table (`MistyRose1`, …) is not
+  ported yet; lift it verbatim when the config file lands. **Escapes must never enter a width calculation**:
   `format_table` pads from plain cell text and paints afterwards;
   `alignment_is_unaffected_by_colour` is the test that catches violations. Porcelain
   output is never coloured.

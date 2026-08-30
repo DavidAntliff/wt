@@ -5,7 +5,7 @@
 //! Widths are always computed from PLAIN cell text; painting wraps the text
 //! after padding is decided, so escapes can never enter a width calculation.
 
-use anstyle::{AnsiColor, Style};
+use anstyle::{Ansi256Color, AnsiColor, Color, Effects, RgbColor, Style};
 
 /// When to colour the table (mirrors slogs / grep / ls).
 #[derive(Clone, Copy, Default, PartialEq, clap::ValueEnum)]
@@ -73,40 +73,135 @@ pub struct Theme {
     pub last_aging_days: u64,
 }
 
-const CYAN: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Cyan)));
-const WHITE: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::White)));
-const RED: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Red)));
-const GREEN: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Green)));
-const YELLOW: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Yellow)));
 const GIB: u64 = 1 << 30;
 
+/// The built-in defaults, written in the same style-spec grammar a future
+/// config file will use (the slogs grammar: attributes and one colour per
+/// spec, in any order).
 impl Default for Theme {
     fn default() -> Self {
+        let s = |spec: &str| parse_style(spec).expect("built-in style spec");
         Theme {
-            header: CYAN,
-            path: WHITE,
-            branch: RED.italic(),
-            marker_brackets: WHITE,
-            marker_main: YELLOW,
-            marker_cwd: GREEN,
-            size: WHITE,
-            size_warn: YELLOW,
-            size_alert: RED,
+            header: s("cyan bold"),
+            path: s("bright-white"),
+            branch: s("white"),
+            marker_brackets: s("bright-white"),
+            marker_main: s("bright-yellow"),
+            marker_cwd: s("bright-green"),
+            size: s("bright-white"),
+            size_warn: s("bright-yellow"),
+            size_alert: s("bright-red"),
             size_warn_bytes: GIB,
             size_alert_bytes: 10 * GIB,
-            status_clean: GREEN,
-            status_mod: RED,
-            status_untr: YELLOW,
-            merged_ok: GREEN,
-            merged_unmerged: RED,
-            upstream_ok: GREEN,
-            upstream_none: WHITE,
-            last_fresh: GREEN,
-            last_aging: YELLOW,
-            last_old: RED,
+            status_clean: s("green"),
+            status_mod: s("red"),
+            status_untr: s("yellow"),
+            merged_ok: s("green"),
+            merged_unmerged: s("yellow"),
+            upstream_ok: s("green"),
+            upstream_none: s("white"),
+            last_fresh: s("green"),
+            last_aging: s("yellow"),
+            last_old: s("red"),
             last_fresh_days: 3,
             last_aging_days: 7,
         }
+    }
+}
+
+/// Parse a style specification: attributes and at most one colour, in any
+/// order — e.g. "cyan bold", "bright-white", "196 italic", "#ff8700".
+/// Same grammar as slogs, so a shared config vocabulary is possible.
+pub fn parse_style(spec: &str) -> Result<Style, String> {
+    let mut style = Style::new();
+    let mut colour: Option<Color> = None;
+
+    for token in spec.split_whitespace() {
+        let lower = token.to_ascii_lowercase();
+        let effect = match lower.as_str() {
+            "bold" => Some(Effects::BOLD),
+            "dim" => Some(Effects::DIMMED),
+            "italic" => Some(Effects::ITALIC),
+            "underline" => Some(Effects::UNDERLINE),
+            "reverse" => Some(Effects::INVERT),
+            _ => None,
+        };
+        if let Some(effect) = effect {
+            style = style.effects(style.get_effects() | effect);
+            continue;
+        }
+        // An explicit request for the terminal's own foreground, so a built-in
+        // default can be switched off without deleting the key.
+        if lower == "default" {
+            continue;
+        }
+        if colour.is_some() {
+            return Err(format!("more than one colour in {spec:?}"));
+        }
+        colour = Some(parse_colour(&lower)?);
+    }
+
+    if let Some(colour) = colour {
+        style = style.fg_color(Some(colour));
+    }
+    Ok(style)
+}
+
+// ponytail: no xterm palette names (MistyRose1, ...) yet — lift slogs'
+// XTERM_NAMES table verbatim when the config file lands.
+fn parse_colour(token: &str) -> Result<Color, String> {
+    if let Some(ansi) = ansi_name(token) {
+        return Ok(Color::Ansi(ansi));
+    }
+    if let Ok(index) = token.parse::<u8>() {
+        return Ok(Color::Ansi256(Ansi256Color(index)));
+    }
+    if let Some(rgb) = parse_hex(token) {
+        return Ok(Color::Rgb(rgb));
+    }
+    Err(format!(
+        "{token:?} is not a colour; expected an ANSI name, 0-255, or #rrggbb"
+    ))
+}
+
+fn ansi_name(token: &str) -> Option<AnsiColor> {
+    Some(match token {
+        "black" => AnsiColor::Black,
+        "red" => AnsiColor::Red,
+        "green" => AnsiColor::Green,
+        "yellow" => AnsiColor::Yellow,
+        "blue" => AnsiColor::Blue,
+        "magenta" => AnsiColor::Magenta,
+        "cyan" => AnsiColor::Cyan,
+        "white" => AnsiColor::White,
+        "bright-black" => AnsiColor::BrightBlack,
+        "bright-red" => AnsiColor::BrightRed,
+        "bright-green" => AnsiColor::BrightGreen,
+        "bright-yellow" => AnsiColor::BrightYellow,
+        "bright-blue" => AnsiColor::BrightBlue,
+        "bright-magenta" => AnsiColor::BrightMagenta,
+        "bright-cyan" => AnsiColor::BrightCyan,
+        "bright-white" => AnsiColor::BrightWhite,
+        _ => return None,
+    })
+}
+
+/// `#rrggbb`, or the `#rgb` shorthand.
+fn parse_hex(token: &str) -> Option<RgbColor> {
+    let digits = token.strip_prefix('#')?;
+    let pair = |s: &str| u8::from_str_radix(s, 16).ok();
+    match digits.len() {
+        6 => Some(RgbColor(
+            pair(&digits[0..2])?,
+            pair(&digits[2..4])?,
+            pair(&digits[4..6])?,
+        )),
+        // #abc means #aabbcc, so each digit is doubled rather than shifted.
+        3 => {
+            let d = |i: usize| pair(&digits[i..i + 1]).map(|v| v * 17);
+            Some(RgbColor(d(0)?, d(1)?, d(2)?))
+        }
+        _ => None,
     }
 }
 
@@ -287,6 +382,48 @@ mod tests {
         assert!(out.contains(&t.status_mod.to_string()));
         assert!(out.contains(&t.status_untr.to_string()));
         assert_eq!(t.paint("STATUS", "-"), "-");
+    }
+
+    #[test]
+    fn parse_style_grammar_matches_slogs() {
+        // Order-independent, attribute + one colour.
+        assert_eq!(parse_style("cyan bold"), parse_style("bold cyan"));
+        let s = parse_style("bright-white").unwrap();
+        assert_eq!(s.get_fg_color(), Some(Color::Ansi(AnsiColor::BrightWhite)));
+        // Bare 256-index and hex forms.
+        assert_eq!(
+            parse_style("196").unwrap().get_fg_color(),
+            Some(Color::Ansi256(Ansi256Color(196)))
+        );
+        assert_eq!(
+            parse_style("#ff8700").unwrap().get_fg_color(),
+            Some(Color::Rgb(RgbColor(0xff, 0x87, 0x00)))
+        );
+        assert_eq!(
+            parse_style("#abc").unwrap().get_fg_color(),
+            Some(Color::Rgb(RgbColor(0xaa, 0xbb, 0xcc)))
+        );
+        // "default" is a no-op; empty spec is the empty style.
+        assert_eq!(parse_style("default").unwrap(), Style::new());
+        assert_eq!(parse_style("").unwrap(), Style::new());
+        // Errors: two colours, or a non-colour word.
+        assert!(parse_style("red green").is_err());
+        assert!(parse_style("chartreuse-ish").is_err());
+    }
+
+    #[test]
+    fn default_theme_matches_the_agreed_palette() {
+        let t = Theme::default();
+        assert_eq!(t.header, parse_style("cyan bold").unwrap());
+        assert_eq!(t.path, parse_style("bright-white").unwrap());
+        assert_eq!(t.branch, parse_style("white").unwrap());
+        assert_eq!(t.marker_brackets, parse_style("bright-white").unwrap());
+        assert_eq!(t.marker_main, parse_style("bright-yellow").unwrap());
+        assert_eq!(t.marker_cwd, parse_style("bright-green").unwrap());
+        assert_eq!(t.size, parse_style("bright-white").unwrap());
+        assert_eq!(t.size_warn, parse_style("bright-yellow").unwrap());
+        assert_eq!(t.size_alert, parse_style("bright-red").unwrap());
+        assert_eq!(t.merged_unmerged, parse_style("yellow").unwrap());
     }
 
     #[test]
