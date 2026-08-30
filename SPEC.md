@@ -243,9 +243,10 @@ deliberately NOT configurable, unlike the table palette:
 | fatal errors (the `wt: <msg>` line before a non-zero exit, ambiguous-match headers) | bright-red |
 | interactive y/N prompts | bright-magenta |
 
-The one narration line printed by wt-shell itself (`wt: cd <dir>` after `rm`
-moves the shell to safety) follows the same rule: cyan, honouring a `--color`
-among the args and the same stderr-auto resolution.
+The narration wt-shell prints itself follows the same rules — `wt: cd <dir>`
+after `rm` moves the shell to safety is cyan; the dead-cwd recovery lines
+("… is gone — moved to …") are warnings, bright-yellow — honouring a
+`--color` among the args and the same stderr-auto resolution.
 
 ### main
 
@@ -365,7 +366,8 @@ a shell by ANOTHER shell's `wt rm` (or a plain `rm -rf`), after which
 `getcwd()` fails and everything — git, `wt cd`, the escape hatches — breaks.
 When cwd is dead, `_wt_recover` cds to the repo's main clone if known, else
 to the nearest existing ancestor of the dead path, narrates where it went
-(cyan, honouring `--color` among the args), and the requested command then
+(a bright-yellow warning, honouring `--color` among the args), and the
+requested command then
 runs normally from there. The main clone is remembered in the shell variable
 `_wt_main_clone`, refreshed at the top of every `wt` invocation while cwd is
 alive (`_wt_remember_main`, one extra `wt main` subprocess; outside a repo

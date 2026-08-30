@@ -45,13 +45,14 @@ sourced function rather than a plain program. For a command's own options, run
 EOF
 }
 
-# Print "$1" to stderr as a cyan `wt:` narration line, matching the binary's
-# narration colour. The remaining arguments are the command's args, scanned
-# for the global --color; `auto` then follows the binary's stderr rule
-# (CLICOLOR_FORCE beats NO_COLOR beats stderr-is-a-colour-terminal).
-_wt_info() {
-    local msg=$1 when=auto prev= a on=
-    shift
+# Print "$2" to stderr painted with SGR code "$1", matching the binary's
+# narration palette (36 = cyan info, 93 = bright-yellow warning). The
+# remaining arguments are the command's args, scanned for the global
+# --color; `auto` then follows the binary's stderr rule (CLICOLOR_FORCE
+# beats NO_COLOR beats stderr-is-a-colour-terminal).
+_wt_msg() {
+    local sgr=$1 msg=$2 when=auto prev= a on=
+    shift 2
     for a in "$@"; do
         case "$a" in
             --color=*) when=${a#--color=} ;;
@@ -69,11 +70,14 @@ _wt_info() {
             ;;
     esac
     if [ -n "$on" ]; then
-        printf '\033[36m%s\033[0m\n' "$msg" >&2
+        printf '\033[%sm%s\033[0m\n' "$sgr" "$msg" >&2
     else
         printf '%s\n' "$msg" >&2
     fi
 }
+
+_wt_info() { _wt_msg 36 "$@"; }
+_wt_warn() { _wt_msg 93 "$@"; }
 
 # Remember the main clone of the repo the shell is currently in, so
 # _wt_recover has somewhere to go if this directory is later deleted out from
@@ -91,18 +95,18 @@ _wt_remember_main() {
 # dead path. Silent no-op when cwd is alive, so it is also safe to run before
 # every prompt:
 #     PROMPT_COMMAND="_wt_recover${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
-# Any arguments are scanned for the global --color (see _wt_info).
+# Any arguments are scanned for the global --color (see _wt_msg).
 _wt_recover() {
     [ -d "$PWD" ] && return 0
     local dead=$PWD
     if [ -n "${_wt_main_clone:-}" ] && [ -d "$_wt_main_clone" ]; then
         cd "$_wt_main_clone" &&
-            _wt_info "wt: $dead is gone — moved to main clone $_wt_main_clone" "$@"
+            _wt_warn "wt: $dead is gone — moved to main clone $_wt_main_clone" "$@"
     else
         local p=$dead
         while [ -n "$p" ] && [ ! -d "$p" ]; do p=${p%/*}; done
         p=${p:-/}
-        cd "$p" && _wt_info "wt: $dead is gone — moved to nearest existing dir $p" "$@"
+        cd "$p" && _wt_warn "wt: $dead is gone — moved to nearest existing dir $p" "$@"
     fi
 }
 
