@@ -158,7 +158,9 @@ Table of every worktree of the repo (main clone first, tagged `[main]`; the
 current worktree tagged `[cwd]`). Branch column shows the branch, or
 `(detached at <short-sha>)` / `(bare)` / `(unknown)`, where `<short-sha>` comes
 from `git rev-parse --short` (so it is as wide as this repo needs, not a fixed
-slice). This is also what bare `wt` runs — and a leading FLAG with no subcommand
+slice); if that abbreviation query fails (e.g. a prunable worktree whose commit
+is gone), the label falls back to plain `(detached)` rather than aborting the
+listing. This is also what bare `wt` runs — and a leading FLAG with no subcommand
 (`wt -s`, `wt -g`, `wt -sg`) is rewritten to `list` with those flags, so the
 list options work without typing `list`.
 
@@ -173,7 +175,9 @@ list options work without typing `list`.
   build output, and (for the main clone) the shared `.git` object store. Off by
   default because du walks every file, which is slow on big trees. A worktree du
   cannot fully read still reports du's partial total, or `?` if du printed
-  nothing.
+  nothing. The size-band colouring parses du's C-locale figures (`1.2G`); in a
+  locale with a decimal comma (`1,2G`) the size still displays but is not
+  colour-classified (deliberate: du is not forced to `LC_ALL=C` for now).
 - `-g, --git` — add four git-state columns (between SIZE and the markers),
   answering "is it OK to remove this worktree?":
   - `STATUS` — working-tree cleanliness from `git status --porcelain`: `clean`,
@@ -185,6 +189,9 @@ list options work without typing `list`.
   - `UPSTREAM` — ahead/behind the branch's tracking ref (`rev-list --left-right
     --count @{u}...HEAD`): `ok` (in sync), `ahead N`, `behind N`,
     `ahead N, behind M`, `none` (no upstream), `-` (detached/bare — no branch).
+    ANY failed `@{u}` query renders `none` — a missing upstream is by far the
+    usual cause and is not distinguished from other rev-list failures, so this
+    column never shows `?`.
   - `LAST` — the HEAD commit's relative committer date (`log -1 --format=%cr`,
     e.g. `3 days ago`).
 
@@ -322,7 +329,9 @@ normal and means the built-in defaults.
   leaves every other default in place.
 - **Problems are warnings, never failures**: unknown sections/keys, bad
   specs, unreadable or invalid TOML each print a `wt:` warning on stderr (even
-  when colour is off) and the listing still runs.
+  when colour is off) and the listing still runs. Exception: `list -p` never
+  loads the config at all (porcelain is never coloured), so config warnings
+  appear only in table mode and in the other config-reading commands.
 - `--color auto` resolution follows cargo: `CLICOLOR_FORCE` beats everything,
   then `NO_COLOR`, then whether stdout is a terminal that supports colour.
 
@@ -349,6 +358,26 @@ forwarded to the binary.
 | `add` | Shell-intercepted. Run `wt add …` (narration streams via stderr), capture the new worktree path from stdout, and cd into it. All add flags pass through; with `--no-cd` the binary prints no path, so the shell stays put. |
 | `rm` | Run `wt rm …`. rm can delete the directory the shell is in; in that case the binary prints a safe dir (the main clone) on stdout and `wt` cds there, so the shell is never stranded in a deleted directory. rm's prompts still work: they are on stderr and stdin stays attached under the capture. |
 | anything else (`list`, `copy`, empty, unknown) | Forwarded verbatim with stdin/stdout/stderr attached. `copy` syncs the configured `[copy]` paths into the current worktree; empty → the binary defaults to `list`; a leading list flag (`wt -s`, `wt -g`, `wt -sg`) → the binary rewrites it to `list`; an unknown command → clap's "unrecognized subcommand" error. Nothing here changes cwd. |
+
+**Dead-cwd recovery.** Before dispatching, every `wt` invocation checks that
+the current directory still exists; a worktree can be removed out from under
+a shell by ANOTHER shell's `wt rm` (or a plain `rm -rf`), after which
+`getcwd()` fails and everything — git, `wt cd`, the escape hatches — breaks.
+When cwd is dead, `_wt_recover` cds to the repo's main clone if known, else
+to the nearest existing ancestor of the dead path, narrates where it went
+(cyan, honouring `--color` among the args), and the requested command then
+runs normally from there. The main clone is remembered in the shell variable
+`_wt_main_clone`, refreshed at the top of every `wt` invocation while cwd is
+alive (`_wt_remember_main`, one extra `wt main` subprocess; outside a repo
+the previous value is kept). The variable is per-shell and can be stale — if
+the user manually cd'd to another repo and never ran `wt` there, recovery
+moves to the last repo `wt` saw; the narration says exactly where the shell
+went. `_wt_recover` is a silent no-op with exit 0 when cwd is alive, so it
+can also be run before every prompt for self-healing without typing `wt`:
+
+```sh
+PROMPT_COMMAND="_wt_recover${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+```
 
 Per-command help (`wt <cmd> -h` / `--help`): for the intercepting branches
 (main/cd/add/rm), a help flag in the args is detected first and the call is

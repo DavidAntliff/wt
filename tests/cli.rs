@@ -454,6 +454,103 @@ fn add_without_submodules_prints_no_submodule_notice() {
     assert!(!stderr(&out).contains("submodules"));
 }
 
+/// Run `script` under bash with the test binary first on PATH, from `cwd`.
+/// For the wt-shell (sourced function) end-to-end tests.
+fn bash(cwd: &Path, script: &str) -> Output {
+    let bin_dir = Path::new(env!("CARGO_BIN_EXE_wt")).parent().unwrap();
+    let path = format!(
+        "{}:{}",
+        bin_dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    Command::new("bash")
+        .arg("-c")
+        .arg(script)
+        .current_dir(cwd)
+        .env("PATH", path)
+        .env("WT_CONFIG", "/nonexistent/wt-test-config.toml")
+        .env_remove("NO_COLOR")
+        .env_remove("CLICOLOR_FORCE")
+        .output()
+        .expect("run bash")
+}
+
+#[test]
+fn wt_shell_recovers_when_the_cwd_is_removed_externally() {
+    let t = setup();
+    let out = wt(&t.repo(), &["add", "doomed"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let wt_path = PathBuf::from(stdout(&out).trim());
+    let shell = Path::new(env!("CARGO_MANIFEST_DIR")).join("wt-shell");
+    let main = t.repo().canonicalize().unwrap();
+
+    // The shell ran wt in the worktree, so the main clone was recorded; when
+    // the worktree is removed under it, the next wt command moves it there.
+    let script = format!(
+        "source {shell}\n\
+         cd {wt}\n\
+         wt list >/dev/null\n\
+         git -C {main} worktree remove --force {wt} 2>/dev/null\n\
+         wt cd\n\
+         pwd\n",
+        shell = shell.display(),
+        wt = wt_path.display(),
+        main = main.display(),
+    );
+    let out = bash(&t.dir, &script);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stdout(&out).lines().last().unwrap(),
+        main.to_string_lossy(),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stderr(&out).contains("is gone — moved to main clone"),
+        "{:?}",
+        stderr(&out)
+    );
+
+    // No wt ever ran in this shell -> fall back to the nearest existing
+    // ancestor (the container dir); the shell is functional again even though
+    // `wt list` then fails outside a repo.
+    let out2 = wt(&t.repo(), &["add", "doomed2"]);
+    let wt2 = PathBuf::from(stdout(&out2).trim());
+    let script = format!(
+        "source {shell}\n\
+         cd {wt}\n\
+         git -C {main} worktree remove --force {wt} 2>/dev/null\n\
+         _wt_recover\n\
+         pwd\n",
+        shell = shell.display(),
+        wt = wt2.display(),
+        main = main.display(),
+    );
+    let out = bash(&t.dir, &script);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stdout(&out).lines().last().unwrap(),
+        t.dir.canonicalize().unwrap().to_string_lossy(),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stderr(&out).contains("moved to nearest existing dir"),
+        "{:?}",
+        stderr(&out)
+    );
+
+    // From a live directory _wt_recover is a silent no-op (PROMPT_COMMAND-safe).
+    let script = format!(
+        "source {shell}\n_wt_recover\necho rc=$?\n",
+        shell = shell.display()
+    );
+    let out = bash(&main, &script);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "rc=0");
+    assert_eq!(stderr(&out), "");
+}
+
 /// A config file whose [copy] section lists `.idea` and a nested file.
 fn copy_config(t: &Temp, on_add: bool) -> PathBuf {
     let cfg = t.dir.join("copy-config.toml");

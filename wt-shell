@@ -75,6 +75,37 @@ _wt_info() {
     fi
 }
 
+# Remember the main clone of the repo the shell is currently in, so
+# _wt_recover has somewhere to go if this directory is later deleted out from
+# under us. Refreshed at the top of every `wt` invocation; outside a repo the
+# lookup fails and the previous value is kept.
+_wt_remember_main() {
+    local m
+    m="$(command wt main 2>/dev/null)" && [ -n "$m" ] && _wt_main_clone=$m
+}
+
+# Move the shell somewhere real if its current directory has been deleted
+# (e.g. the worktree was removed by another shell — getcwd fails and every
+# command breaks until the shell cds out). Prefers the last main clone seen
+# by `wt` in this shell; falls back to the nearest existing ancestor of the
+# dead path. Silent no-op when cwd is alive, so it is also safe to run before
+# every prompt:
+#     PROMPT_COMMAND="_wt_recover${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+# Any arguments are scanned for the global --color (see _wt_info).
+_wt_recover() {
+    [ -d "$PWD" ] && return 0
+    local dead=$PWD
+    if [ -n "${_wt_main_clone:-}" ] && [ -d "$_wt_main_clone" ]; then
+        cd "$_wt_main_clone" &&
+            _wt_info "wt: $dead is gone — moved to main clone $_wt_main_clone" "$@"
+    else
+        local p=$dead
+        while [ -n "$p" ] && [ ! -d "$p" ]; do p=${p%/*}; done
+        p=${p:-/}
+        cd "$p" && _wt_info "wt: $dead is gone — moved to nearest existing dir $p" "$@"
+    fi
+}
+
 # True if any argument is a help flag (-h/--help).
 _wt_wants_help() {
     local a
@@ -86,6 +117,11 @@ _wt_wants_help() {
 
 wt() {
     local target st
+    # A deleted cwd breaks everything below (git needs a working directory);
+    # rescue the shell first, then remember this repo's main clone for the
+    # next rescue.
+    _wt_recover "$@"
+    _wt_remember_main
     case "${1:-}" in
         -h|--help|help)
             # Top-level help: our own curated overview, NOT `wt --help`.
@@ -96,9 +132,11 @@ wt() {
             # `parent` is the command's former name, kept working silently.
             # Per-command help forwards to the binary (it prints to stdout and
             # exits, so it must NOT be captured-and-cd'd into). Otherwise: the
-            # binary prints the main-clone root on stdout; cd into it.
+            # binary prints the main-clone root on stdout; cd into it. The
+            # remaining args (e.g. the global --color) are forwarded.
+            shift
             if _wt_wants_help "$@"; then command wt main --help; return $?; fi
-            target="$(command wt main)"; st=$?
+            target="$(command wt main "$@")"; st=$?
             if [ $st -eq 0 ] && [ -n "$target" ]; then cd "$target"; else return $st; fi
             ;;
         cd)

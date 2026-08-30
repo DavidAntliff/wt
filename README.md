@@ -125,6 +125,16 @@ uncommitted work without `-f`, and offers to delete the now-unused branch
 (`-d` to delete it without asking). If it removed the directory your shell was
 standing in, your shell is moved to the main clone instead of being stranded.
 
+That protection also covers removal by *someone else*: if another shell (or a
+plain `rm -rf`) deletes the worktree you are sitting in, the next `wt` command
+notices the dead directory and moves your shell to the repo's main clone
+(falling back to the nearest existing ancestor). To self-heal at the next
+prompt without typing `wt`, add after sourcing wt-shell:
+
+```sh
+PROMPT_COMMAND="_wt_recover${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+```
+
 ### copy
 
 Some per-worktree material is untracked and doesn't follow you into a new
