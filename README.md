@@ -47,7 +47,16 @@ PATH                        BRANCH       STATUS   MERGED  UPSTREAM  LAST
 The table is coloured when stdout is a terminal (green = safe / fresh, yellow =
 attention, red = work you'd lose), and stderr narration — progress, warnings,
 errors, prompts — is coloured likewise; `--color always|never|auto` overrides
-both, and `NO_COLOR` is respected.
+both, and `NO_COLOR` is respected. Plain `wt` lists paths and branches; `-s`
+adds the SIZE column, `-g` the git columns, and `-gs` combines them:
+
+![wt](images/wt.png)
+
+![wt -s](images/wt-s.png)
+
+![wt -g](images/wt-g.png)
+
+![wt -gs](images/wt-gs.png)
 
 Every table colour, and the thresholds behind the SIZE and LAST bands (MiB
 cutoffs and day bands), can be changed in `~/.config/wt/config.toml` (or
