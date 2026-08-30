@@ -52,7 +52,7 @@ breaks `wt` (the function would `cd` into whatever lands on stdout).
 ## Binary commands
 
 ```
-wt add  [-d] [-b REF] [-p DIR] [-c|--no-copy] [--submodules|--no-submodules] [--no-cd] [BRANCH]
+wt add  [-d] [-b REF] [-p DIR] [-c|--no-copy] [-s|--no-submodules] [--no-cd] [BRANCH]
 wt rm   [-f] [-d] [PATH|QUERY]
 wt list [-p|--porcelain] [-a|--absolute] [-s|--size] [-g|--git] [--color WHEN]
 wt main
@@ -93,7 +93,7 @@ Options:
   if the config's `on-add` is false; `--no-copy` suppresses the copy even if it
   is true (the two conflict). With neither flag, the config's `on-add` decides.
   Copying with an empty `paths` list is a notice, not an error.
-- `--submodules` — populate submodules (`git submodule update --init
+- `-s, --submodules` — populate submodules (`git submodule update --init
   --recursive`) in the new worktree even if the config's `[submodules] on-add`
   is false; `--no-submodules` skips it even if it is true (the two conflict).
   With neither flag, the config's `on-add` (default false) decides. When

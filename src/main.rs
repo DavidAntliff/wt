@@ -47,7 +47,7 @@ enum Cmd {
         no_copy: bool,
         /// populate submodules (git submodule update --init --recursive),
         /// even if the config's [submodules] on-add is false
-        #[arg(long)]
+        #[arg(short = 's', long)]
         submodules: bool,
         /// do not populate submodules, even if the config's on-add is true
         #[arg(long, conflicts_with = "submodules")]

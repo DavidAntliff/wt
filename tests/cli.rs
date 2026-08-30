@@ -341,8 +341,8 @@ fn add_skips_submodules_by_default_with_flag_and_config_overrides() {
     assert!(!p.join("sub/s.txt").exists());
     assert!(stderr(&out).contains("submodules present but not checked out"));
 
-    // --submodules forces the checkout.
-    let out = wt(&t.repo(), &["add", "--submodules", "two"]);
+    // -s/--submodules forces the checkout.
+    let out = wt(&t.repo(), &["add", "-s", "two"]);
     assert!(out.status.success(), "{}", stderr(&out));
     let p = PathBuf::from(stdout(&out).trim());
     assert!(p.join("sub/s.txt").is_file());

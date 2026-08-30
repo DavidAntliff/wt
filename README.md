@@ -107,7 +107,7 @@ Run `wt <command> -h` for a command's own options.
 - otherwise → a new branch, based on whatever you had checked out (`-b REF` to
   base it elsewhere)
 
-Submodules are not populated by default — pass `--submodules`, or set
+Submodules are not populated by default — pass `-s`/`--submodules`, or set
 `[submodules] on-add = true` in the config to make it automatic
 (`--no-submodules` then skips it for one run); a notice on stderr tells you
 when a worktree has submodules that were left unpopulated. `-p DIR`
