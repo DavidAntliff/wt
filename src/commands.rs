@@ -15,7 +15,10 @@ pub struct AddOpts {
     pub detach: bool,
     pub base: Option<String>,
     pub path: Option<PathBuf>,
-    pub idea: bool,
+    /// Copy the configured [copy] paths into the new worktree: forced on
+    /// (`-c`), forced off (`--no-copy`), or `None` = follow the config's
+    /// `on-add`.
+    pub copy: Option<bool>,
     pub submodules: bool,
     pub no_cd: bool,
 }
@@ -219,16 +222,18 @@ pub fn add(opts: &AddOpts) -> Result<()> {
         )?;
     }
 
-    // Optionally seed IntelliJ config from the main clone (the canonical
-    // source, same as `wt idea`).
-    if opts.idea {
-        let src = main_clone.join(".idea");
-        if src.is_dir() {
-            copy_dir_all(&src, &wt_path.join(".idea"))
-                .map_err(|e| crate::Error::new(format!("copying .idea/: {e}")))?;
-            info!("wt: copied .idea/ from {}", main_clone.display());
+    // Optionally seed the new worktree with the configured [copy] paths (the
+    // same set `wt copy` syncs): -c forces it, --no-copy suppresses it, and
+    // otherwise the config's on-add decides.
+    let cfg = crate::config::load();
+    for warning in &cfg.warnings {
+        info!("wt: {warning}");
+    }
+    if opts.copy.unwrap_or(cfg.copy.on_add) {
+        if cfg.copy.paths.is_empty() {
+            info!("wt: nothing configured to copy ([copy] paths is empty); skipped");
         } else {
-            info!("wt: no .idea/ in {}; skipped", main_clone.display());
+            copy_paths(&main_clone, &wt_path, &cfg.copy.paths)?;
         }
     }
 
@@ -732,7 +737,7 @@ pub fn main_cmd() -> Result<()> {
 }
 
 // -----------------------------------------------------------------------------
-// idea
+// copy
 // -----------------------------------------------------------------------------
 
 /// Recursive copy (Python's `shutil.copytree`); merges into an existing dst.
@@ -750,9 +755,33 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-// ponytail: hardcodes the .idea/ directory; planned successor is `wt copy`,
-// taking a list of directories from an env var.
-pub fn idea(force: bool) -> Result<()> {
+/// Copy the configured paths from the main clone into `dst_root`. Shared by
+/// `wt copy` and `add`'s copy-on-add. A path missing in the main clone is a
+/// notice, not an error; destinations are assumed clear (the callers gate
+/// that).
+fn copy_paths(main_clone: &Path, dst_root: &Path, paths: &[String]) -> Result<()> {
+    for rel in paths {
+        let src = main_clone.join(rel);
+        let dst = dst_root.join(rel);
+        if src.is_dir() {
+            copy_dir_all(&src, &dst)
+        } else if src.is_file() {
+            // Nested entries like .vscode/settings.json need their parent.
+            dst.parent()
+                .map(std::fs::create_dir_all)
+                .transpose()
+                .and_then(|_| std::fs::copy(&src, &dst).map(|_| ()))
+        } else {
+            info!("wt: no {rel} in {}; skipped", main_clone.display());
+            continue;
+        }
+        .map_err(|e| crate::Error::new(format!("copying {rel}: {e}")))?;
+        info!("wt: copied {rel} from {}", main_clone.display());
+    }
+    Ok(())
+}
+
+pub fn copy(force: bool) -> Result<()> {
     let cwd = cwd()?;
     git::require_worktree(&cwd)?;
     let main_clone = git::main_clone_of(&cwd)?;
@@ -763,40 +792,57 @@ pub fn idea(force: bool) -> Result<()> {
 
     if cur_top == main_clone {
         fail!(
-            "current worktree is the main clone ({}); `wt idea` syncs .idea/ FROM the main clone \
+            "current worktree is the main clone ({}); `wt copy` copies FROM the main clone \
              INTO a worktree — run it from inside a worktree",
             main_clone.display()
         );
     }
 
-    let src = main_clone.join(".idea");
-    if !src.is_dir() {
+    let loaded = crate::config::load();
+    for warning in &loaded.warnings {
+        info!("wt: {warning}");
+    }
+    let paths = loaded.copy.paths;
+    if paths.is_empty() {
         fail!(
-            "no .idea/ in the main clone ({}); nothing to sync",
-            main_clone.display()
+            "nothing configured to copy; list paths under [copy] in the config file \
+             (wt --generate-config shows the format)"
         );
     }
 
-    let dst = cur_top.join(".idea");
-    if dst.exists() {
+    // Check ALL destinations before touching anything, so a run without -f is
+    // all-or-nothing.
+    let existing: Vec<&String> = paths
+        .iter()
+        .filter(|rel| cur_top.join(rel).exists())
+        .collect();
+    if !existing.is_empty() {
         if !force {
             fail!(
-                ".idea/ already exists in this worktree ({}); pass -f/--force to overwrite it",
-                dst.display()
+                "already in this worktree: {} — pass -f/--force to overwrite",
+                existing
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             );
         }
-        let removed = if dst.is_dir() {
-            std::fs::remove_dir_all(&dst)
-        } else {
-            std::fs::remove_file(&dst)
-        };
-        removed.map_err(|e| crate::Error::new(format!("removing {}: {e}", dst.display())))?;
-        info!("wt: removed existing .idea/ in {}", cur_top.display());
+        // A true overwrite, not a merge: remove each existing destination first.
+        for rel in existing {
+            let dst = cur_top.join(rel);
+            let removed = if dst.is_dir() {
+                std::fs::remove_dir_all(&dst)
+            } else {
+                std::fs::remove_file(&dst)
+            };
+            removed.map_err(|e| crate::Error::new(format!("removing {}: {e}", dst.display())))?;
+            info!("wt: removed existing {rel} in {}", cur_top.display());
+        }
     }
 
-    copy_dir_all(&src, &dst).map_err(|e| crate::Error::new(format!("copying .idea/: {e}")))?;
+    copy_paths(&main_clone, &cur_top, &paths)?;
     info!(
-        "wt: synced .idea/ from {} -> {}",
+        "wt: copied from {} -> {}",
         main_clone.display(),
         cur_top.display()
     );

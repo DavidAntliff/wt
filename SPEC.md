@@ -52,12 +52,12 @@ breaks `wt` (the function would `cd` into whatever lands on stdout).
 ## Binary commands
 
 ```
-wt add  [-d] [-b REF] [-p DIR] [-i] [--no-submodules] [--no-cd] [BRANCH]
+wt add  [-d] [-b REF] [-p DIR] [-c|--no-copy] [--no-submodules] [--no-cd] [BRANCH]
 wt rm   [-f] [-d] [PATH|QUERY]
 wt list [-p|--porcelain] [-a|--absolute] [-s|--size] [-g|--git] [--color WHEN]
 wt main
 wt resolve QUERY
-wt idea [-f|--force]
+wt copy [-f|--force]
 wt            # no command -> list (exit 0)
 wt -s|-g|...  # leading flag -> list with those flags (wt -sg works)
 ```
@@ -90,8 +90,10 @@ Options:
   Ignored, with a notice, if BRANCH exists.
 - `-p, --path DIR` — create the worktree at DIR instead of the default sibling
   path. Relative paths resolve against the current dir.
-- `-i, --idea` — copy the MAIN CLONE's `.idea/` into the new worktree (IntelliJ
-  config; same source as `wt idea`). No-op with a notice if absent.
+- `-c, --copy` — copy the configured `[copy]` paths into the new worktree even
+  if the config's `on-add` is false; `--no-copy` suppresses the copy even if it
+  is true (the two conflict). With neither flag, the config's `on-add` decides.
+  Copying with an empty `paths` list is a notice, not an error.
 - `--no-submodules` — skip `submodule update --init --recursive` (default: run).
 - `--no-cd` — create the worktree but do NOT cd into it: suppress the stdout
   path so the `wt` shell function stays put, and print
@@ -217,23 +219,26 @@ Print the main-clone root (parent of the shared `.git`) to stdout. `wt main` cds
 to it. `parent`, the command's former name, is still accepted as an undocumented
 alias (hidden from `--help`).
 
-### idea [-f]
+### copy [-f]
 
-Sync IntelliJ config into the CURRENT worktree after the fact, for when it was
-created without `add -i`. Copies the MAIN CLONE's `.idea/` into the current
-worktree's root (resolved via `git rev-parse --show-toplevel`, so it works from
-any subdir).
+Copy the paths listed under `[copy]` in the config file (untracked per-worktree
+material like IDE config) from the MAIN CLONE into the CURRENT worktree's root
+(resolved via `git rev-parse --show-toplevel`, so it works from any subdir).
+The same set is what `add` copies when copy-on-add is enabled. Directories are
+copied recursively; a plain file's parent directories are created as needed.
 
-- `-f, --force` — overwrite an existing `.idea/` in the worktree (the existing
-  one is removed first, so the result is a clean copy of the main clone's — a
-  true overwrite, not a merge).
+- `-f, --force` — overwrite paths that already exist in the worktree (each is
+  removed first, so the result is a clean copy of the main clone's — a true
+  overwrite, not a merge).
 
 Refuses to run from the main clone itself (it is the source, not a target).
-Errors if the main clone has no `.idea/`, or if the worktree already has one and
-`-f` was not given (the "warn" — no files are touched). No stdout path.
+Errors if `paths` is empty (with a pointer at the config), or — before touching
+anything, so the run is all-or-nothing — if any destination already exists and
+`-f` was not given. A configured path absent from the main clone is a stderr
+notice, not an error. No stdout path.
 
-Planned evolution: `idea` will become a general `wt copy`, taking the list of
-directories to sync from an environment variable instead of hardcoding `.idea/`.
+(This command replaced the earlier `wt idea`, which hardcoded `.idea/`; there
+is no alias.)
 
 ### resolve QUERY
 
@@ -250,9 +255,9 @@ SUBSTRING match on either.
 
 ## Configuration
 
-Colours and the SIZE/LAST thresholds, for now. The model is slogs': they come
-from a config file and nowhere else; a missing file is normal and means the
-built-in defaults.
+Colours, the SIZE/LAST thresholds, and the `[copy]` path set. The model is
+slogs': they come from a config file and nowhere else; a missing file is
+normal and means the built-in defaults.
 
 - **Location**: `$WT_CONFIG`, else `$XDG_CONFIG_HOME/wt/config.toml`, else
   `~/.config/wt/config.toml`.
@@ -265,6 +270,10 @@ built-in defaults.
   `status-untracked`, `merged`, `unmerged`, `upstream-ok`, `upstream-none`,
   `last-fresh`, `last-aging`, `last-old`. There is deliberately no
   `[colour.values]`-style section.
+- **`[copy]`** configures `wt copy` and copy-on-add: `on-add` (boolean,
+  default false) makes `wt add` copy automatically; `paths` (array of strings,
+  default empty) lists what to copy, relative to the repository root. Entries
+  that are absolute or leave the tree (`..`) are ignored with a warning.
 - **`[thresholds]`** holds where the SIZE and LAST colours switch over, as
   whole non-negative numbers: `size-warn` (MiB, default 1024) and `size-alert`
   (MiB, default 10240) — SIZE bigger than these uses the warn/alert colour —
@@ -308,7 +317,7 @@ forwarded to the binary.
 | `cd [QUERY]` | Shell-intercepted. With QUERY: run `wt resolve QUERY` and cd to the printed path. With NO query, or with the literal query `main`, behave like `wt main`. (`main` is special-cased rather than left to `resolve`, so it lands on the main clone deterministically instead of depending on that clone happening to be on a branch named `main` — a fuzzy match could otherwise pick up e.g. `wt-…-maintenance.git`. Nothing legitimate is shadowed: git will not let a linked worktree hold the main clone's branch anyway.) The `cd` verb lives only in this wrapper; `resolve` is the binary's reusable primitive. |
 | `add` | Shell-intercepted. Run `wt add …` (narration streams via stderr), capture the new worktree path from stdout, and cd into it. All add flags pass through; with `--no-cd` the binary prints no path, so the shell stays put. |
 | `rm` | Run `wt rm …`. rm can delete the directory the shell is in; in that case the binary prints a safe dir (the main clone) on stdout and `wt` cds there, so the shell is never stranded in a deleted directory. rm's prompts still work: they are on stderr and stdin stays attached under the capture. |
-| anything else (`list`, `idea`, empty, unknown) | Forwarded verbatim with stdin/stdout/stderr attached. `idea` syncs the main clone's `.idea/` into the current worktree; empty → the binary defaults to `list`; a leading list flag (`wt -s`, `wt -g`, `wt -sg`) → the binary rewrites it to `list`; an unknown command → clap's "unrecognized subcommand" error. Nothing here changes cwd. |
+| anything else (`list`, `copy`, empty, unknown) | Forwarded verbatim with stdin/stdout/stderr attached. `copy` syncs the configured `[copy]` paths into the current worktree; empty → the binary defaults to `list`; a leading list flag (`wt -s`, `wt -g`, `wt -sg`) → the binary rewrites it to `list`; an unknown command → clap's "unrecognized subcommand" error. Nothing here changes cwd. |
 
 Per-command help (`wt <cmd> -h` / `--help`): for the intercepting branches
 (main/cd/add/rm), a help flag in the args is detected first and the call is
@@ -337,8 +346,8 @@ Executing `wt-shell` directly (not sourcing it) prints usage and exits 0.
   without `-f` / confirmation declined / `worktree remove` fails (a failed
   `branch -d` is a non-fatal stderr notice)
 - `resolve`: no match (exit 1); ambiguous match (exit 2) — used by `wt cd`
-- `idea`: run from the main clone / main clone has no `.idea/` / worktree
-  already has one and no `-f`
+- `copy`: run from the main clone / no paths configured / a destination
+  already exists and no `-f`
 - clap usage errors exit 2 (as argparse did)
 
 ## Notes

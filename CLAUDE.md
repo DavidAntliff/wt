@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 `wt` is a git-worktree front end: a Rust binary (`add` / `rm` / `list` / `main` /
-`resolve` / `idea`) plus a sourced bash function (`wt-shell`) that wraps it and performs
+`resolve` / `copy`) plus a sourced bash function (`wt-shell`) that wraps it and performs
 the `cd`s a child process cannot. `README.md` is the user-facing guide; `SPEC.md` is the
 authoritative behaviour spec — keep it in sync with any behaviour change.
 
@@ -101,9 +101,10 @@ capture, or `--help` output gets cd'd into.
 - **`rm` prints a path on stdout only when it removed the directory the shell was
   standing in** — that is the shell function's cue to move the shell to safety, not a
   general result.
-- **`wt idea` is a stopgap name.** The plan is to generalise it into `wt copy`, taking
-  the list of directories to sync from an environment variable instead of hardcoding
-  `.idea/`. Keep that in mind before deepening its `.idea`-specific behaviour.
+- **`wt copy` replaced the earlier `wt idea`** (which hardcoded `.idea/`); there is
+  deliberately NO `idea` alias and no `add -i`. The path set comes only from the
+  config's `[copy]` section; `add`'s `-c`/`--no-copy` override its `on-add`, and
+  `copy_paths` in `commands.rs` is the one implementation both commands share.
 
 ## Provenance
 

@@ -58,9 +58,16 @@ fn setup() -> Temp {
 }
 
 fn wt(cwd: &Path, args: &[&str]) -> Output {
+    // Point WT_CONFIG at a path that never exists so tests see the built-in
+    // defaults, not the developer's real ~/.config/wt/config.toml.
+    wt_with_config(cwd, Path::new("/nonexistent/wt-test-config.toml"), args)
+}
+
+fn wt_with_config(cwd: &Path, config: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_wt"))
         .args(args)
         .current_dir(cwd)
+        .env("WT_CONFIG", config)
         .output()
         .expect("run wt")
 }
@@ -294,67 +301,118 @@ fn leading_flag_means_list() {
     assert!(so.contains("clean"));
 }
 
-#[test]
-fn idea_syncs_from_main_clone_into_worktree() {
-    let t = setup();
+/// A config file whose [copy] section lists `.idea` and a nested file.
+fn copy_config(t: &Temp, on_add: bool) -> PathBuf {
+    let cfg = t.dir.join("copy-config.toml");
+    std::fs::write(
+        &cfg,
+        format!("[copy]\non-add = {on_add}\npaths = [\".idea\", \".vscode/settings.json\"]\n"),
+    )
+    .unwrap();
+    cfg
+}
+
+/// Seed the main clone with the sources `copy_config` refers to.
+fn seed_sources(t: &Temp) {
     let idea = t.repo().join(".idea");
     std::fs::create_dir_all(idea.join("sub")).unwrap();
     std::fs::write(idea.join("workspace.xml"), "<xml/>\n").unwrap();
     std::fs::write(idea.join("sub").join("deep.xml"), "<deep/>\n").unwrap();
+    std::fs::create_dir_all(t.repo().join(".vscode")).unwrap();
+    std::fs::write(t.repo().join(".vscode/settings.json"), "{}\n").unwrap();
+}
 
-    let add = wt(&t.repo(), &["add", "ideas"]);
+#[test]
+fn copy_syncs_configured_paths_into_worktree() {
+    let t = setup();
+    let cfg = copy_config(&t, false);
+    seed_sources(&t);
+
+    let add = wt(&t.repo(), &["add", "target"]);
     let wt_path = PathBuf::from(stdout(&add).trim());
+    // on-add is false, so the fresh worktree was NOT seeded.
+    assert!(!wt_path.join(".idea").exists());
 
     // From the main clone: refused (it is the source, not a target).
-    let out = wt(&t.repo(), &["idea"]);
+    let out = wt_with_config(&t.repo(), &cfg, &["copy"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(stderr(&out).contains("main clone"));
 
-    // From the worktree: copied recursively, nothing on stdout.
-    let out = wt(&wt_path, &["idea"]);
+    // From the worktree: dirs copied recursively, nested file too, no stdout.
+    let out = wt_with_config(&wt_path, &cfg, &["copy"]);
     assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(stdout(&out), "");
     assert_eq!(
         std::fs::read_to_string(wt_path.join(".idea/sub/deep.xml")).unwrap(),
         "<deep/>\n"
     );
+    assert!(wt_path.join(".vscode/settings.json").exists());
 
-    // Existing .idea/ needs -f; -f replaces (old contents gone, not merged).
-    let out = wt(&wt_path, &["idea"]);
+    // Existing destinations need -f; -f replaces (old contents gone, not merged).
+    let out = wt_with_config(&wt_path, &cfg, &["copy"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(stderr(&out).contains("--force"));
     std::fs::write(wt_path.join(".idea/stale.xml"), "old\n").unwrap();
-    let out = wt(&wt_path, &["idea", "-f"]);
+    let out = wt_with_config(&wt_path, &cfg, &["copy", "-f"]);
     assert!(out.status.success(), "{}", stderr(&out));
     assert!(!wt_path.join(".idea/stale.xml").exists());
     assert!(wt_path.join(".idea/workspace.xml").exists());
 }
 
 #[test]
-fn idea_errors_when_main_clone_has_none() {
+fn copy_with_nothing_configured_is_an_error_and_missing_source_a_notice() {
     let t = setup();
-    let add = wt(&t.repo(), &["add", "noidea"]);
+    let add = wt(&t.repo(), &["add", "empty"]);
     let wt_path = PathBuf::from(stdout(&add).trim());
-    let out = wt(&wt_path, &["idea"]);
+
+    // Default config: no paths -> error pointing at the config.
+    let out = wt(&wt_path, &["copy"]);
     assert_eq!(out.status.code(), Some(1));
-    assert!(stderr(&out).contains("nothing to sync"));
+    assert!(stderr(&out).contains("nothing configured to copy"));
+
+    // Configured but absent in the main clone -> notice, success.
+    let cfg = copy_config(&t, false);
+    let out = wt_with_config(&wt_path, &cfg, &["copy"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stderr(&out).contains("skipped"));
 }
 
 #[test]
-fn add_with_idea_flag_seeds_the_new_worktree() {
+fn add_copy_on_add_and_overrides() {
     let t = setup();
-    std::fs::create_dir_all(t.repo().join(".idea")).unwrap();
-    std::fs::write(t.repo().join(".idea/misc.xml"), "<misc/>\n").unwrap();
-    let out = wt(&t.repo(), &["add", "-i", "seeded"]);
-    assert!(out.status.success(), "{}", stderr(&out));
-    let wt_path = PathBuf::from(stdout(&out).trim());
-    assert!(wt_path.join(".idea/misc.xml").exists());
+    seed_sources(&t);
 
-    // Without .idea/ in the main clone: a notice, not an error.
-    let t2 = setup();
-    let out = wt(&t2.repo(), &["add", "-i", "unseeded"]);
+    // on-add = true seeds automatically.
+    let cfg = copy_config(&t, true);
+    let out = wt_with_config(&t.repo(), &cfg, &["add", "auto"]);
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stderr(&out).contains("skipped"));
+    let so = stdout(&out);
+    assert_eq!(so.lines().count(), 1, "stdout stays a single path: {so:?}");
+    assert!(
+        PathBuf::from(so.trim())
+            .join(".idea/workspace.xml")
+            .exists()
+    );
+
+    // --no-copy suppresses it.
+    let out = wt_with_config(&t.repo(), &cfg, &["add", "--no-copy", "manual"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!PathBuf::from(stdout(&out).trim()).join(".idea").exists());
+
+    // -c forces it when on-add = false.
+    let cfg_off = copy_config(&t, false);
+    let out = wt_with_config(&t.repo(), &cfg_off, &["add", "-c", "forced"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(PathBuf::from(stdout(&out).trim()).join(".idea").exists());
+
+    // -c with nothing configured: a notice, not an error.
+    let out = wt(&t.repo(), &["add", "-c", "noconf"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stderr(&out).contains("nothing configured to copy"));
+
+    // -c and --no-copy conflict.
+    let out = wt(&t.repo(), &["add", "-c", "--no-copy", "clash"]);
+    assert_eq!(out.status.code(), Some(2));
 }
 
 #[test]

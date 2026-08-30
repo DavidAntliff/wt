@@ -97,6 +97,13 @@ size-warn        = 1024             # MiB; SIZE bigger than this is size-warn
 size-alert       = 10240            # MiB; SIZE bigger than this is size-alert
 last-fresh       = 3                # days; this old or newer is last-fresh
 last-aging       = 7                # days; this old or older is last-old
+
+# Paths copied from the main clone into a worktree by `wt copy`, and
+# optionally by `wt add`. Relative to the repository root; entries that are
+# absolute or leave the tree (..) are ignored with a warning.
+[copy]
+on-add = false      # also copy automatically when `wt add` creates a worktree
+paths  = []         # e.g. [".idea", ".vscode/settings.json"]
 "##;
 
 /// Every key accepted under `[colour]`.
@@ -127,15 +134,24 @@ pub const THRESHOLD_KEYS: &[&str] = &["size-warn", "size-alert", "last-fresh", "
 
 const MIB: u64 = 1 << 20;
 
+/// What `wt copy` copies, and whether `wt add` copies automatically.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CopyConfig {
+    pub on_add: bool,
+    /// Repo-root-relative paths, already validated to stay inside the tree.
+    pub paths: Vec<String>,
+}
+
 /// The result of loading configuration. Problems are warnings, never
 /// failures: a broken config must not stop a listing from running.
 #[derive(Debug, Default)]
 pub struct Loaded {
     pub theme: Theme,
+    pub copy: CopyConfig,
     pub warnings: Vec<String>,
 }
 
-/// The built-in defaults.
+/// The built-in default theme.
 pub fn defaults() -> Theme {
     parse(DEFAULT_CONFIG).theme
 }
@@ -169,16 +185,14 @@ fn resolve_path(
 
 /// Load the defaults, then overlay the config file if there is one.
 pub fn load() -> Loaded {
-    let mut loaded = Loaded {
-        theme: defaults(),
-        warnings: Vec::new(),
-    };
+    let mut loaded = parse(DEFAULT_CONFIG);
+    debug_assert!(loaded.warnings.is_empty());
     let Some(path) = config_path() else {
         return loaded;
     };
     match std::fs::read_to_string(&path) {
         Ok(text) => {
-            let user = parse_over(&text, &mut loaded.theme);
+            let user = parse_over(&text, &mut loaded.theme, &mut loaded.copy);
             loaded
                 .warnings
                 .extend(user.into_iter().map(|w| format!("{}: {w}", path.display())));
@@ -192,17 +206,23 @@ pub fn load() -> Loaded {
     loaded
 }
 
-/// Parse config text over an unstyled theme. Only keys actually present are
-/// set, so the result of parsing `DEFAULT_CONFIG` IS the default palette.
+/// Parse config text over an unstyled theme and an empty copy config. Only
+/// keys actually present are set, so the result of parsing `DEFAULT_CONFIG`
+/// IS the default configuration.
 pub fn parse(text: &str) -> Loaded {
     let mut theme = Theme::default();
-    let warnings = parse_over(text, &mut theme);
-    Loaded { theme, warnings }
+    let mut copy = CopyConfig::default();
+    let warnings = parse_over(text, &mut theme, &mut copy);
+    Loaded {
+        theme,
+        copy,
+        warnings,
+    }
 }
 
-/// Apply config text onto `theme`, key by key, returning the warnings. A user
-/// config that sets one colour leaves every other value in place.
-fn parse_over(text: &str, theme: &mut Theme) -> Vec<String> {
+/// Apply config text onto the settings, key by key, returning the warnings. A
+/// user config that sets one value leaves every other value in place.
+fn parse_over(text: &str, theme: &mut Theme, copy: &mut CopyConfig) -> Vec<String> {
     let mut warnings = Vec::new();
 
     let table: toml::Table = match text.parse() {
@@ -218,6 +238,13 @@ fn parse_over(text: &str, theme: &mut Theme) -> Vec<String> {
             match value.as_table() {
                 Some(thresholds) => parse_thresholds(thresholds, theme, &mut warnings),
                 None => warnings.push("[thresholds] should be a table".to_string()),
+            }
+            continue;
+        }
+        if section == "copy" {
+            match value.as_table() {
+                Some(table) => parse_copy(table, copy, &mut warnings),
+                None => warnings.push("[copy] should be a table".to_string()),
             }
             continue;
         }
@@ -272,6 +299,49 @@ fn parse_thresholds(table: &toml::Table, theme: &mut Theme, warnings: &mut Vec<S
             "last-fresh" => theme.last_fresh_days = n,
             "last-aging" => theme.last_aging_days = n,
             _ => unreachable!("key was checked against THRESHOLD_KEYS"),
+        }
+    }
+}
+
+fn parse_copy(table: &toml::Table, copy: &mut CopyConfig, warnings: &mut Vec<String>) {
+    for (key, value) in table {
+        match key.as_str() {
+            "on-add" => match value.as_bool() {
+                Some(b) => copy.on_add = b,
+                None => warnings.push("copy.on-add should be true or false".to_string()),
+            },
+            "paths" => match value.as_array() {
+                Some(entries) => {
+                    copy.paths = entries
+                        .iter()
+                        .filter_map(|e| {
+                            let Some(s) = e.as_str() else {
+                                warnings.push(format!(
+                                    "copy.paths entries should be strings, not {e:?}"
+                                ));
+                                return None;
+                            };
+                            // Entries must stay inside the tree.
+                            let p = std::path::Path::new(s);
+                            if p.is_absolute()
+                                || p.components()
+                                    .any(|c| c == std::path::Component::ParentDir)
+                                || s.is_empty()
+                            {
+                                warnings.push(format!(
+                                    "copy.paths: {s:?} must be a relative path inside the repository"
+                                ));
+                                return None;
+                            }
+                            Some(s.to_string())
+                        })
+                        .collect();
+                }
+                None => warnings.push(
+                    "copy.paths should be an array of strings, such as [\".idea\"]".to_string(),
+                ),
+            },
+            _ => warnings.push(format!("unknown key {key:?} in [copy]")),
         }
     }
 }
@@ -340,6 +410,7 @@ mod tests {
         let warnings = parse_over(
             "[thresholds]\nsize-warn = 512\nlast-aging = 14\n",
             &mut theme,
+            &mut CopyConfig::default(),
         );
         assert_eq!(warnings, Vec::<String>::new());
         assert_eq!(theme.size_warn_bytes, 512 << 20);
@@ -355,6 +426,7 @@ mod tests {
         let warnings = parse_over(
             "[thresholds]\nsize-warn = \"big\"\nlast-fresh = -1\nbogus = 3\n",
             &mut theme,
+            &mut CopyConfig::default(),
         );
         assert_eq!(warnings.len(), 3);
         assert_eq!(theme, defaults());
@@ -363,7 +435,11 @@ mod tests {
     #[test]
     fn user_config_overlays_one_key_and_keeps_the_rest() {
         let mut theme = defaults();
-        let warnings = parse_over("[colour]\nbranch = \"red italic\"\n", &mut theme);
+        let warnings = parse_over(
+            "[colour]\nbranch = \"red italic\"\n",
+            &mut theme,
+            &mut CopyConfig::default(),
+        );
         assert_eq!(warnings, Vec::<String>::new());
         assert_eq!(theme.branch, parse_style("red italic").unwrap());
         assert_eq!(theme.header, parse_style("cyan bold").unwrap());
@@ -372,7 +448,11 @@ mod tests {
     #[test]
     fn color_spelling_is_accepted() {
         let mut theme = defaults();
-        let warnings = parse_over("[color]\npath = \"blue\"\n", &mut theme);
+        let warnings = parse_over(
+            "[color]\npath = \"blue\"\n",
+            &mut theme,
+            &mut CopyConfig::default(),
+        );
         assert_eq!(warnings, Vec::<String>::new());
         assert_eq!(theme.path, parse_style("blue").unwrap());
     }
@@ -383,14 +463,43 @@ mod tests {
         let warnings = parse_over(
             "[colour]\nheader = \"no-such-colour\"\nbogus = \"red\"\npath = 3\n\n[other]\nx = 1\n",
             &mut theme,
+            &mut CopyConfig::default(),
         );
         assert_eq!(warnings.len(), 4);
         // The good defaults survive every bad key.
         assert_eq!(theme, defaults());
 
-        let warnings = parse_over("not toml at all [", &mut theme);
+        let warnings = parse_over("not toml at all [", &mut theme, &mut CopyConfig::default());
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("not valid TOML"));
+    }
+
+    #[test]
+    fn copy_defaults_are_off_and_empty() {
+        let loaded = parse(DEFAULT_CONFIG);
+        assert_eq!(loaded.copy, CopyConfig::default());
+        assert!(!loaded.copy.on_add);
+        assert!(loaded.copy.paths.is_empty());
+    }
+
+    #[test]
+    fn copy_section_parses() {
+        let loaded =
+            parse("[copy]\non-add = true\npaths = [\".idea\", \".vscode/settings.json\"]\n");
+        assert_eq!(loaded.warnings, Vec::<String>::new());
+        assert!(loaded.copy.on_add);
+        assert_eq!(loaded.copy.paths, vec![".idea", ".vscode/settings.json"]);
+    }
+
+    #[test]
+    fn copy_rejects_escaping_paths_and_bad_types_with_warnings() {
+        let loaded = parse(
+            "[copy]\non-add = \"yes\"\npaths = [\"/abs\", \"../up\", \"ok\", \"\", 3]\nbogus = 1\n",
+        );
+        // on-add bad type, two escaping paths, one empty, one non-string, one unknown key.
+        assert_eq!(loaded.warnings.len(), 6, "{:?}", loaded.warnings);
+        assert!(!loaded.copy.on_add);
+        assert_eq!(loaded.copy.paths, vec!["ok"]);
     }
 
     #[test]

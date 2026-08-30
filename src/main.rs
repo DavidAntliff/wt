@@ -38,9 +38,13 @@ enum Cmd {
         /// worktree directory (overrides the default sibling path)
         #[arg(short, long, value_name = "DIR")]
         path: Option<PathBuf>,
-        /// copy the main clone's .idea/ into the new worktree
-        #[arg(short, long)]
-        idea: bool,
+        /// copy the configured [copy] paths into the new worktree, even if
+        /// the config's on-add is false
+        #[arg(short = 'c', long)]
+        copy: bool,
+        /// do not copy the [copy] paths, even if the config's on-add is true
+        #[arg(long, conflicts_with = "copy")]
+        no_copy: bool,
         /// skip submodule checkout (default: check them out)
         #[arg(long)]
         no_submodules: bool,
@@ -85,9 +89,10 @@ enum Cmd {
         #[arg(long, value_enum, value_name = "WHEN", default_value = "auto")]
         color: ColorWhen,
     },
-    /// copy the main clone's .idea/ into the current worktree
-    Idea {
-        /// overwrite an existing .idea/ in the worktree
+    /// copy the configured [copy] paths from the main clone into the current
+    /// worktree
+    Copy {
+        /// overwrite paths that already exist in the worktree
         #[arg(short, long)]
         force: bool,
     },
@@ -130,7 +135,8 @@ fn main() {
             detach,
             base,
             path,
-            idea,
+            copy,
+            no_copy,
             no_submodules,
             no_cd,
         }) => commands::add(&AddOpts {
@@ -138,7 +144,12 @@ fn main() {
             detach,
             base,
             path,
-            idea,
+            // -c => Some(true), --no-copy => Some(false), neither => follow config.
+            copy: match (copy, no_copy) {
+                (true, _) => Some(true),
+                (_, true) => Some(false),
+                _ => None,
+            },
             submodules: !no_submodules,
             no_cd,
         }),
@@ -164,7 +175,7 @@ fn main() {
             git,
             color,
         }),
-        Some(Cmd::Idea { force }) => commands::idea(force),
+        Some(Cmd::Copy { force }) => commands::copy(force),
         Some(Cmd::Main | Cmd::Parent) => commands::main_cmd(),
         Some(Cmd::Resolve { query }) => commands::resolve(&query),
     };

@@ -91,7 +91,8 @@ wt main                  cd to the main clone
 wt add [opts] <branch>   create a sibling worktree for <branch> and cd into it
 wt add -d [commit-ish]   ...or a detached worktree (no branch), default HEAD
 wt rm [opts] [path]      remove a worktree (offers to delete its branch too)
-wt idea [-f]             copy the main clone's .idea/ into the current worktree
+wt copy [-f]             copy the configured paths from the main clone into
+                         the current worktree
 ```
 
 Run `wt <command> -h` for a command's own options.
@@ -107,10 +108,11 @@ Run `wt <command> -h` for a command's own options.
   base it elsewhere)
 
 Submodules are populated by default (`--no-submodules` to skip). `-p DIR`
-overrides the default sibling path; `-i` seeds the new worktree with the main
-clone's `.idea/` (IntelliJ config); `--no-cd` creates the worktree but leaves
-your shell where it is. `wt add -d v1.2.3` gives a branchless worktree detached
-at a tag/commit — handy for builds and bisects.
+overrides the default sibling path; `-c` seeds the new worktree with the
+configured `[copy]` paths (`--no-copy` suppresses it when the config enables it
+by default); `--no-cd` creates the worktree but leaves your shell where it is.
+`wt add -d v1.2.3` gives a branchless worktree detached at a tag/commit —
+handy for builds and bisects.
 
 ### rm
 
@@ -120,12 +122,22 @@ uncommitted work without `-f`, and offers to delete the now-unused branch
 (`-d` to delete it without asking). If it removed the directory your shell was
 standing in, your shell is moved to the main clone instead of being stranded.
 
-### idea
+### copy
 
-`wt idea` copies the main clone's `.idea/` (IntelliJ per-project config, which
-is per-directory and so doesn't follow you into a new worktree) into the
-current worktree, for worktrees created without `add -i`. It refuses to
-overwrite an existing `.idea/` unless you pass `-f`.
+Some per-worktree material is untracked and doesn't follow you into a new
+worktree — IDE config like `.idea/` or `.vscode/settings.json` is the classic
+case. List those paths in the config file and `wt copy` syncs them from the
+main clone into the current worktree (`-f` to overwrite ones that already
+exist):
+
+```toml
+[copy]
+on-add = true                 # seed every new worktree automatically
+paths  = [".idea", ".vscode/settings.json"]
+```
+
+With `on-add = true`, `wt add` does the copy for you (`--no-copy` to skip it
+once); with `on-add = false`, `wt add -c` opts in per worktree.
 
 ### cd / resolve
 
