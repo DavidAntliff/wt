@@ -52,7 +52,7 @@ breaks `wt` (the function would `cd` into whatever lands on stdout).
 ## Binary commands
 
 ```
-wt add  [-d] [-b REF] [-p DIR] [-c|--no-copy] [--no-submodules] [--no-cd] [BRANCH]
+wt add  [-d] [-b REF] [-p DIR] [-c|--no-copy] [--submodules|--no-submodules] [--no-cd] [BRANCH]
 wt rm   [-f] [-d] [PATH|QUERY]
 wt list [-p|--porcelain] [-a|--absolute] [-s|--size] [-g|--git] [--color WHEN]
 wt main
@@ -64,9 +64,8 @@ wt -s|-g|...  # leading flag -> list with those flags (wt -sg works)
 
 ### add [BRANCH]
 
-Add a git worktree as a SIBLING of the main clone and populate its submodules,
-ready to open in an IDE + a fresh coding agent. BRANCH is required unless `-d`
-is given.
+Add a git worktree as a SIBLING of the main clone, ready to open in an IDE + a
+fresh coding agent. BRANCH is required unless `-d` is given.
 
 Which commit the worktree starts at (first matching case):
 
@@ -94,7 +93,12 @@ Options:
   if the config's `on-add` is false; `--no-copy` suppresses the copy even if it
   is true (the two conflict). With neither flag, the config's `on-add` decides.
   Copying with an empty `paths` list is a notice, not an error.
-- `--no-submodules` — skip `submodule update --init --recursive` (default: run).
+- `--submodules` — populate submodules (`git submodule update --init
+  --recursive`) in the new worktree even if the config's `[submodules] on-add`
+  is false; `--no-submodules` skips it even if it is true (the two conflict).
+  With neither flag, the config's `on-add` (default false) decides. When
+  submodules are skipped but the new worktree has a `.gitmodules` at its root,
+  a stderr notice says so and how to populate them.
 - `--no-cd` — create the worktree but do NOT cd into it: suppress the stdout
   path so the `wt` shell function stays put, and print
   "...but shell remains in current worktree!".
@@ -255,7 +259,8 @@ SUBSTRING match on either.
 
 ## Configuration
 
-Colours, the SIZE/LAST thresholds, and the `[copy]` path set. The model is
+Colours, the SIZE/LAST thresholds, the `[copy]` path set, and the
+`[submodules]` switch. The model is
 slogs': they come from a config file and nowhere else; a missing file is
 normal and means the built-in defaults.
 
@@ -274,6 +279,9 @@ normal and means the built-in defaults.
   default false) makes `wt add` copy automatically; `paths` (array of strings,
   default empty) lists what to copy, relative to the repository root. Entries
   that are absolute or leave the tree (`..`) are ignored with a warning.
+- **`[submodules]`** configures `wt add`'s submodule handling: `on-add`
+  (boolean, default false) makes `wt add` run `git submodule update --init
+  --recursive` in the new worktree.
 - **`[thresholds]`** holds where the SIZE and LAST colours switch over, as
   whole non-negative numbers: `size-warn` (MiB, default 1024) and `size-alert`
   (MiB, default 10240) — SIZE bigger than these uses the warn/alert colour —

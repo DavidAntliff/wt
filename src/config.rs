@@ -104,6 +104,11 @@ last-aging       = 7                # days; this old or older is last-old
 [copy]
 on-add = false      # also copy automatically when `wt add` creates a worktree
 paths  = []         # e.g. [".idea", ".vscode/settings.json"]
+
+# Whether `wt add` populates submodules in the new worktree
+# (git submodule update --init --recursive).
+[submodules]
+on-add = false      # populate submodules when `wt add` creates a worktree
 "##;
 
 /// Every key accepted under `[colour]`.
@@ -148,6 +153,8 @@ pub struct CopyConfig {
 pub struct Loaded {
     pub theme: Theme,
     pub copy: CopyConfig,
+    /// Whether `wt add` populates submodules ([submodules] on-add).
+    pub submodules_on_add: bool,
     pub warnings: Vec<String>,
 }
 
@@ -192,7 +199,12 @@ pub fn load() -> Loaded {
     };
     match std::fs::read_to_string(&path) {
         Ok(text) => {
-            let user = parse_over(&text, &mut loaded.theme, &mut loaded.copy);
+            let user = parse_over(
+                &text,
+                &mut loaded.theme,
+                &mut loaded.copy,
+                &mut loaded.submodules_on_add,
+            );
             loaded
                 .warnings
                 .extend(user.into_iter().map(|w| format!("{}: {w}", path.display())));
@@ -212,17 +224,24 @@ pub fn load() -> Loaded {
 pub fn parse(text: &str) -> Loaded {
     let mut theme = Theme::default();
     let mut copy = CopyConfig::default();
-    let warnings = parse_over(text, &mut theme, &mut copy);
+    let mut submodules_on_add = false;
+    let warnings = parse_over(text, &mut theme, &mut copy, &mut submodules_on_add);
     Loaded {
         theme,
         copy,
+        submodules_on_add,
         warnings,
     }
 }
 
 /// Apply config text onto the settings, key by key, returning the warnings. A
 /// user config that sets one value leaves every other value in place.
-fn parse_over(text: &str, theme: &mut Theme, copy: &mut CopyConfig) -> Vec<String> {
+fn parse_over(
+    text: &str,
+    theme: &mut Theme,
+    copy: &mut CopyConfig,
+    submodules_on_add: &mut bool,
+) -> Vec<String> {
     let mut warnings = Vec::new();
 
     let table: toml::Table = match text.parse() {
@@ -238,6 +257,24 @@ fn parse_over(text: &str, theme: &mut Theme, copy: &mut CopyConfig) -> Vec<Strin
             match value.as_table() {
                 Some(thresholds) => parse_thresholds(thresholds, theme, &mut warnings),
                 None => warnings.push("[thresholds] should be a table".to_string()),
+            }
+            continue;
+        }
+        if section == "submodules" {
+            match value.as_table() {
+                Some(table) => {
+                    for (key, value) in table {
+                        match key.as_str() {
+                            "on-add" => match value.as_bool() {
+                                Some(b) => *submodules_on_add = b,
+                                None => warnings
+                                    .push("submodules.on-add should be true or false".to_string()),
+                            },
+                            _ => warnings.push(format!("unknown key {key:?} in [submodules]")),
+                        }
+                    }
+                }
+                None => warnings.push("[submodules] should be a table".to_string()),
             }
             continue;
         }
@@ -411,6 +448,7 @@ mod tests {
             "[thresholds]\nsize-warn = 512\nlast-aging = 14\n",
             &mut theme,
             &mut CopyConfig::default(),
+            &mut false,
         );
         assert_eq!(warnings, Vec::<String>::new());
         assert_eq!(theme.size_warn_bytes, 512 << 20);
@@ -427,6 +465,7 @@ mod tests {
             "[thresholds]\nsize-warn = \"big\"\nlast-fresh = -1\nbogus = 3\n",
             &mut theme,
             &mut CopyConfig::default(),
+            &mut false,
         );
         assert_eq!(warnings.len(), 3);
         assert_eq!(theme, defaults());
@@ -439,6 +478,7 @@ mod tests {
             "[colour]\nbranch = \"red italic\"\n",
             &mut theme,
             &mut CopyConfig::default(),
+            &mut false,
         );
         assert_eq!(warnings, Vec::<String>::new());
         assert_eq!(theme.branch, parse_style("red italic").unwrap());
@@ -452,6 +492,7 @@ mod tests {
             "[color]\npath = \"blue\"\n",
             &mut theme,
             &mut CopyConfig::default(),
+            &mut false,
         );
         assert_eq!(warnings, Vec::<String>::new());
         assert_eq!(theme.path, parse_style("blue").unwrap());
@@ -464,12 +505,18 @@ mod tests {
             "[colour]\nheader = \"no-such-colour\"\nbogus = \"red\"\npath = 3\n\n[other]\nx = 1\n",
             &mut theme,
             &mut CopyConfig::default(),
+            &mut false,
         );
         assert_eq!(warnings.len(), 4);
         // The good defaults survive every bad key.
         assert_eq!(theme, defaults());
 
-        let warnings = parse_over("not toml at all [", &mut theme, &mut CopyConfig::default());
+        let warnings = parse_over(
+            "not toml at all [",
+            &mut theme,
+            &mut CopyConfig::default(),
+            &mut false,
+        );
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("not valid TOML"));
     }
@@ -500,6 +547,21 @@ mod tests {
         assert_eq!(loaded.warnings.len(), 6, "{:?}", loaded.warnings);
         assert!(!loaded.copy.on_add);
         assert_eq!(loaded.copy.paths, vec!["ok"]);
+    }
+
+    #[test]
+    fn submodules_default_is_off_and_section_parses() {
+        assert!(!parse(DEFAULT_CONFIG).submodules_on_add);
+        let loaded = parse("[submodules]\non-add = true\n");
+        assert_eq!(loaded.warnings, Vec::<String>::new());
+        assert!(loaded.submodules_on_add);
+    }
+
+    #[test]
+    fn submodules_bad_type_and_unknown_key_warn() {
+        let loaded = parse("[submodules]\non-add = \"yes\"\nbogus = 1\n");
+        assert_eq!(loaded.warnings.len(), 2, "{:?}", loaded.warnings);
+        assert!(!loaded.submodules_on_add);
     }
 
     #[test]

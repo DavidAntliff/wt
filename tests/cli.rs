@@ -68,6 +68,11 @@ fn wt_with_config(cwd: &Path, config: &Path, args: &[&str]) -> Output {
         .args(args)
         .current_dir(cwd)
         .env("WT_CONFIG", config)
+        // Modern git blocks file-protocol submodules by default; allow them
+        // for every git wt spawns so submodule tests can clone local fixtures.
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "protocol.file.allow")
+        .env("GIT_CONFIG_VALUE_0", "always")
         .output()
         .expect("run wt")
 }
@@ -299,6 +304,80 @@ fn leading_flag_means_list() {
     let so = stdout(&out);
     assert!(so.lines().next().unwrap().contains("STATUS"));
     assert!(so.contains("clean"));
+}
+
+/// Commit a file-protocol submodule at `sub/` into the main clone.
+fn add_submodule(t: &Temp) {
+    let src = t.dir.join("subsrc");
+    std::fs::create_dir_all(&src).unwrap();
+    git(&src, &["init", "-b", "main"]);
+    std::fs::write(src.join("s.txt"), "s\n").unwrap();
+    git(&src, &["add", "."]);
+    git(&src, &["commit", "-m", "sub"]);
+    git(
+        &t.repo(),
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            src.to_str().unwrap(),
+            "sub",
+        ],
+    );
+    git(&t.repo(), &["commit", "-m", "add submodule"]);
+}
+
+#[test]
+fn add_skips_submodules_by_default_with_flag_and_config_overrides() {
+    let t = setup();
+    add_submodule(&t);
+
+    // Default: NOT populated, notice on stderr.
+    let out = wt(&t.repo(), &["add", "one"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let p = PathBuf::from(stdout(&out).trim());
+    assert!(p.join(".gitmodules").is_file());
+    assert!(!p.join("sub/s.txt").exists());
+    assert!(stderr(&out).contains("submodules present but not checked out"));
+
+    // --submodules forces the checkout.
+    let out = wt(&t.repo(), &["add", "--submodules", "two"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let p = PathBuf::from(stdout(&out).trim());
+    assert!(p.join("sub/s.txt").is_file());
+    assert!(!stderr(&out).contains("not checked out"));
+
+    // [submodules] on-add = true populates; --no-submodules still wins.
+    let cfg = t.dir.join("sub-config.toml");
+    std::fs::write(&cfg, "[submodules]\non-add = true\n").unwrap();
+    let out = wt_with_config(&t.repo(), &cfg, &["add", "three"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        PathBuf::from(stdout(&out).trim())
+            .join("sub/s.txt")
+            .is_file()
+    );
+    let out = wt_with_config(&t.repo(), &cfg, &["add", "--no-submodules", "four"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        !PathBuf::from(stdout(&out).trim())
+            .join("sub/s.txt")
+            .exists()
+    );
+    assert!(stderr(&out).contains("submodules present but not checked out"));
+
+    // The two flags conflict (clap usage error, exit 2).
+    let out = wt(&t.repo(), &["add", "--submodules", "--no-submodules", "x"]);
+    assert_eq!(out.status.code(), Some(2));
+}
+
+#[test]
+fn add_without_submodules_prints_no_submodule_notice() {
+    let t = setup();
+    let out = wt(&t.repo(), &["add", "plain"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!stderr(&out).contains("submodules"));
 }
 
 /// A config file whose [copy] section lists `.idea` and a nested file.

@@ -107,7 +107,10 @@ Run `wt <command> -h` for a command's own options.
 - otherwise → a new branch, based on whatever you had checked out (`-b REF` to
   base it elsewhere)
 
-Submodules are populated by default (`--no-submodules` to skip). `-p DIR`
+Submodules are not populated by default — pass `--submodules`, or set
+`[submodules] on-add = true` in the config to make it automatic
+(`--no-submodules` then skips it for one run); a notice on stderr tells you
+when a worktree has submodules that were left unpopulated. `-p DIR`
 overrides the default sibling path; `-c` seeds the new worktree with the
 configured `[copy]` paths (`--no-copy` suppresses it when the config enables it
 by default); `--no-cd` creates the worktree but leaves your shell where it is.

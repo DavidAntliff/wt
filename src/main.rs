@@ -24,7 +24,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// add a sibling worktree for a branch, with submodules
+    /// add a sibling worktree for a branch
     Add {
         /// branch name, e.g. dev/fix-foo; with -d, a commit-ish to detach at
         /// (default: HEAD)
@@ -45,8 +45,12 @@ enum Cmd {
         /// do not copy the [copy] paths, even if the config's on-add is true
         #[arg(long, conflicts_with = "copy")]
         no_copy: bool,
-        /// skip submodule checkout (default: check them out)
+        /// populate submodules (git submodule update --init --recursive),
+        /// even if the config's [submodules] on-add is false
         #[arg(long)]
+        submodules: bool,
+        /// do not populate submodules, even if the config's on-add is true
+        #[arg(long, conflicts_with = "submodules")]
         no_submodules: bool,
         /// create the worktree but do not cd into it (shell stays put)
         #[arg(long)]
@@ -137,6 +141,7 @@ fn main() {
             path,
             copy,
             no_copy,
+            submodules,
             no_submodules,
             no_cd,
         }) => commands::add(&AddOpts {
@@ -150,7 +155,13 @@ fn main() {
                 (_, true) => Some(false),
                 _ => None,
             },
-            submodules: !no_submodules,
+            // --submodules => Some(true), --no-submodules => Some(false),
+            // neither => follow config.
+            submodules: match (submodules, no_submodules) {
+                (true, _) => Some(true),
+                (_, true) => Some(false),
+                _ => None,
+            },
             no_cd,
         }),
         Some(Cmd::Rm {

@@ -19,7 +19,10 @@ pub struct AddOpts {
     /// (`-c`), forced off (`--no-copy`), or `None` = follow the config's
     /// `on-add`.
     pub copy: Option<bool>,
-    pub submodules: bool,
+    /// Populate submodules in the new worktree: forced on (`--submodules`),
+    /// forced off (`--no-submodules`), or `None` = follow the config's
+    /// `[submodules] on-add`.
+    pub submodules: Option<bool>,
     pub no_cd: bool,
 }
 
@@ -206,8 +209,15 @@ pub fn add(opts: &AddOpts) -> Result<()> {
         }
     }
 
-    // Populate submodules in the new worktree.
-    if opts.submodules {
+    let cfg = crate::config::load();
+    for warning in &cfg.warnings {
+        info!("wt: {warning}");
+    }
+
+    // Populate submodules in the new worktree: --submodules forces it,
+    // --no-submodules suppresses it, and otherwise the config's
+    // [submodules] on-add (default off) decides.
+    if opts.submodules.unwrap_or(cfg.submodules_on_add) {
         git::run(
             &[
                 "git",
@@ -220,15 +230,15 @@ pub fn add(opts: &AddOpts) -> Result<()> {
             ],
             None,
         )?;
+    } else if wt_path.join(".gitmodules").is_file() {
+        info!(
+            "wt: submodules present but not checked out; run `git submodule update --init --recursive` there, pass --submodules, or set [submodules] on-add"
+        );
     }
 
     // Optionally seed the new worktree with the configured [copy] paths (the
     // same set `wt copy` syncs): -c forces it, --no-copy suppresses it, and
     // otherwise the config's on-add decides.
-    let cfg = crate::config::load();
-    for warning in &cfg.warnings {
-        info!("wt: {warning}");
-    }
     if opts.copy.unwrap_or(cfg.copy.on_add) {
         if cfg.copy.paths.is_empty() {
             info!("wt: nothing configured to copy ([copy] paths is empty); skipped");
