@@ -1,5 +1,7 @@
 # wt
 
+[![CI](https://github.com/DavidAntliff/wt/actions/workflows/ci.yml/badge.svg)](https://github.com/DavidAntliff/wt/actions/workflows/ci.yml)
+
 A git worktree front end: create, switch between, list, and clean up sibling
 worktrees with one short command — including the `cd`, which plain git tooling
 cannot do for you.
