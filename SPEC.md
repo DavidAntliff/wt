@@ -54,7 +54,8 @@ breaks `wt` (the function would `cd` into whatever lands on stdout).
 ```
 wt add  [-d] [-b REF] [-p DIR] [-c|--no-copy] [-s|--no-submodules] [--no-cd] [BRANCH]
 wt rm   [-f] [-d] [PATH|QUERY]
-wt list [-p|--porcelain] [-a|--absolute] [-s|--size] [-g|--git] [--color WHEN]
+wt list [-p|--porcelain] [-a|--absolute] [-s|--size] [-g|--git]
+wt <any> [--color WHEN]       # global: list's table and stderr narration
 wt main
 wt resolve QUERY
 wt copy [-f|--force]
@@ -192,8 +193,11 @@ list options work without typing `list`.
   work would be lost. Cheap (refs/index only), unlike `-s`: no tree walk. Failed
   queries render as values (`?`), never abort the listing.
 
-- `--color WHEN` — colour the table: `auto` (default: only when stdout is a
-  terminal, `NO_COLOR` is unset, and `TERM` is not `dumb`), `always`, `never`.
+- `--color WHEN` — a GLOBAL option (accepted by every command; documented here
+  because the table is its main subject): `auto` (default: only when the
+  stream is a terminal, `NO_COLOR` is unset, and `TERM` is not `dumb`),
+  `always`, `never`. For the table `auto` looks at stdout; for stderr
+  narration (see **Narration colour** below) it looks at stderr.
   Porcelain output is never coloured. All colours and thresholds live in one
   `Theme` struct (`src/theme.rs`), nothing is hard-coded at the paint site;
   the defaults:
@@ -216,6 +220,20 @@ list options work without typing `list`.
   The palette is configurable — see **Configuration** below.
 
 This command's stdout IS its output (table/porcelain).
+
+## Narration colour
+
+Every command's stderr narration is coloured too, honouring the global
+`--color` option resolved against STDERR (stdout is captured by the shell
+function, so it is almost never a terminal). The styles are fixed —
+deliberately NOT configurable, unlike the table palette:
+
+| narration | colour |
+|-----------|--------|
+| ordinary `wt:` lines | cyan |
+| warnings (submodules skipped, config problems, branch NOT deleted, …) | bright-yellow |
+| the final `wt: worktree ready` line | bright-cyan |
+| fatal errors (the `wt: <msg>` line before a non-zero exit, ambiguous-match headers) | bright-red |
 
 ### main
 

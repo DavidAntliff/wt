@@ -67,7 +67,10 @@ default live in `main.rs`, before clap parses.
 - `theme.rs` — `--color` handling, the `Theme` struct, `parse_style`. Every colour AND
   threshold (size warn/alert bytes, LAST age bands) is a `Theme` field — never
   hard-code a colour or a cutoff at a paint site. **`Theme::default()` is entirely
-  unstyled**; the actual palette lives ONLY in `config::DEFAULT_CONFIG`.
+  unstyled**; the actual palette lives ONLY in `config::DEFAULT_CONFIG`. The one
+  deliberate exception: stderr narration (`info!`/`notice!`/`ready!`/`error!` in
+  `lib.rs`) uses fixed styles with NO config; `--color` is a global clap arg,
+  resolved against stdout for the table but against stderr for narration.
 - `config.rs` — the colour config file, modelled on slogs'. `DEFAULT_CONFIG` is the
   single source of truth: `--generate-config` prints it and the built-in defaults come
   from parsing it, so they cannot drift (a test enforces this, and that every key in

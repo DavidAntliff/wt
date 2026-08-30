@@ -73,6 +73,9 @@ fn wt_with_config(cwd: &Path, config: &Path, args: &[&str]) -> Output {
         .env("GIT_CONFIG_COUNT", "1")
         .env("GIT_CONFIG_KEY_0", "protocol.file.allow")
         .env("GIT_CONFIG_VALUE_0", "always")
+        // Colour assertions must not depend on the developer's environment.
+        .env_remove("NO_COLOR")
+        .env_remove("CLICOLOR_FORCE")
         .output()
         .expect("run wt")
 }
@@ -358,18 +361,55 @@ fn add_skips_submodules_by_default_with_flag_and_config_overrides() {
             .join("sub/s.txt")
             .is_file()
     );
-    let out = wt_with_config(&t.repo(), &cfg, &["add", "--no-submodules", "four"]);
+    let out = wt_with_config(
+        &t.repo(),
+        &cfg,
+        &["add", "--no-submodules", "--color", "always", "four"],
+    );
     assert!(out.status.success(), "{}", stderr(&out));
     assert!(
         !PathBuf::from(stdout(&out).trim())
             .join("sub/s.txt")
             .exists()
     );
-    assert!(stderr(&out).contains("submodules present but not checked out"));
+    // The skipped-submodules warning is bright yellow.
+    assert!(
+        stderr(&out).contains("\u{1b}[93mwt: submodules present but not checked out"),
+        "{:?}",
+        stderr(&out)
+    );
 
     // The two flags conflict (clap usage error, exit 2).
     let out = wt(&t.repo(), &["add", "--submodules", "--no-submodules", "x"]);
     assert_eq!(out.status.code(), Some(2));
+}
+
+#[test]
+fn narration_colour_honours_the_global_color_option() {
+    let t = setup();
+
+    // --color always: info lines cyan, "worktree ready" bright cyan; stdout
+    // stays a bare unpainted path.
+    let out = wt(&t.repo(), &["add", "--color", "always", "painted"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let se = stderr(&out);
+    assert!(se.contains("\u{1b}[36mwt: created branch"), "{se:?}");
+    assert!(se.contains("\u{1b}[96mwt: worktree ready"), "{se:?}");
+    assert!(!stdout(&out).contains('\u{1b}'));
+
+    // Errors are bright red.
+    let out = wt(&t.repo(), &["add", "--color", "always", "painted"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("\u{1b}[91mwt: target already exists"),
+        "{:?}",
+        stderr(&out)
+    );
+
+    // Auto (default): stderr is not a terminal here, so no escapes at all.
+    let out = wt(&t.repo(), &["add", "plain"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!stderr(&out).contains('\u{1b}'));
 }
 
 #[test]

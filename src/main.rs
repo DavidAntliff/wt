@@ -20,6 +20,17 @@ struct Cli {
     /// writes a file.
     #[arg(long = "generate-config", exclusive = true)]
     generate_config: bool,
+
+    /// when to colour output (list's table, and every command's stderr
+    /// narration)
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        value_name = "WHEN",
+        default_value = "auto"
+    )]
+    color: ColorWhen,
 }
 
 #[derive(Subcommand)]
@@ -89,9 +100,6 @@ enum Cmd {
         /// local-only upstream: ok / behind N)
         #[arg(short, long)]
         git: bool,
-        /// when to colour the table
-        #[arg(long, value_enum, value_name = "WHEN", default_value = "auto")]
-        color: ColorWhen,
     },
     /// copy the configured [copy] paths from the main clone into the current
     /// worktree
@@ -131,9 +139,15 @@ fn main() {
         print!("{}", wt::config::DEFAULT_CONFIG);
         return;
     }
+    let color = cli.color;
+    // Narration goes to stderr, so its colour is resolved against stderr.
+    wt::set_narration_colour(color.enabled_stderr());
     // Bare `wt` (no subcommand) defaults to the worktree list.
     let result = match cli.command {
-        None => commands::list(&ListOpts::default()),
+        None => commands::list(&ListOpts {
+            color,
+            ..ListOpts::default()
+        }),
         Some(Cmd::Add {
             branch,
             detach,
@@ -178,7 +192,6 @@ fn main() {
             absolute,
             size,
             git,
-            color,
         }) => commands::list(&ListOpts {
             porcelain,
             absolute,
@@ -193,7 +206,7 @@ fn main() {
 
     if let Err(e) = result {
         if let Some(msg) = e.msg {
-            eprintln!("wt: {msg}");
+            wt::error!("wt: {msg}");
         }
         std::process::exit(e.code);
     }

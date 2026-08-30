@@ -149,7 +149,7 @@ pub fn match_worktree(query: &str, cwd: &Path) -> Result<Worktree> {
         ),
         1 => Ok(matches[0].clone()),
         n => {
-            info!("wt: {n} worktrees match '{query}' — be more specific:");
+            crate::error!("wt: {n} worktrees match '{query}' — be more specific:");
             for wt in matches {
                 info!("    {}  ->  {}", branch_label(wt), wt.path.display());
             }

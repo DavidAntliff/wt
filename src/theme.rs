@@ -23,6 +23,17 @@ impl ColorWhen {
     /// stdout is a terminal that claims to support colour.
     pub fn enabled(self) -> bool {
         use std::io::IsTerminal;
+        self.resolve(std::io::stdout().is_terminal())
+    }
+
+    /// The same rule for stderr narration, whose terminal is stderr (stdout is
+    /// usually captured by the `wt` shell function).
+    pub fn enabled_stderr(self) -> bool {
+        use std::io::IsTerminal;
+        self.resolve(std::io::stderr().is_terminal())
+    }
+
+    fn resolve(self, is_terminal: bool) -> bool {
         match self {
             ColorWhen::Always => true,
             ColorWhen::Never => false,
@@ -33,7 +44,7 @@ impl ColorWhen {
                 if anstyle_query::no_color() {
                     return false;
                 }
-                std::io::stdout().is_terminal() && anstyle_query::term_supports_color()
+                is_terminal && anstyle_query::term_supports_color()
             }
         }
     }

@@ -8,7 +8,7 @@ use std::process::Command;
 
 use crate::theme::{ColorWhen, Theme};
 use crate::worktree::{self, Worktree, branch_label};
-use crate::{Result, fail, git, info};
+use crate::{Result, fail, git, info, notice, ready};
 
 pub struct AddOpts {
     pub branch: Option<String>,
@@ -174,7 +174,7 @@ pub fn add(opts: &AddOpts) -> Result<()> {
         };
         if local_exists {
             if let Some(b) = &opts.base {
-                info!("wt: branch {branch} already exists; ignoring --base {b}");
+                notice!("wt: branch {branch} already exists; ignoring --base {b}");
             }
             git::run(
                 &["git", "-C", &main_s, "worktree", "add", &wt_s, branch],
@@ -211,7 +211,7 @@ pub fn add(opts: &AddOpts) -> Result<()> {
 
     let cfg = crate::config::load();
     for warning in &cfg.warnings {
-        info!("wt: {warning}");
+        notice!("wt: {warning}");
     }
 
     // Populate submodules in the new worktree: --submodules forces it,
@@ -231,8 +231,8 @@ pub fn add(opts: &AddOpts) -> Result<()> {
             None,
         )?;
     } else if wt_path.join(".gitmodules").is_file() {
-        info!(
-            "wt: submodules present but not checked out; run `git submodule update --init --recursive` there, pass --submodules, or set [submodules] on-add"
+        notice!(
+            "wt: submodules present but not checked out; run `git submodule update --init --recursive` there, pass -s/--submodules, or set [submodules] on-add"
         );
     }
 
@@ -241,7 +241,7 @@ pub fn add(opts: &AddOpts) -> Result<()> {
     // otherwise the config's on-add decides.
     if opts.copy.unwrap_or(cfg.copy.on_add) {
         if cfg.copy.paths.is_empty() {
-            info!("wt: nothing configured to copy ([copy] paths is empty); skipped");
+            notice!("wt: nothing configured to copy ([copy] paths is empty); skipped");
         } else {
             copy_paths(&main_clone, &wt_path, &cfg.copy.paths)?;
         }
@@ -250,10 +250,10 @@ pub fn add(opts: &AddOpts) -> Result<()> {
     if opts.no_cd {
         // Suppress the stdout path so the `wt` shell function does NOT cd; the
         // shell stays in the current worktree.
-        info!("wt: worktree ready at {},", wt_path.display());
-        info!("    but shell remains in current worktree!");
+        ready!("wt: worktree ready at {},", wt_path.display());
+        ready!("    but shell remains in current worktree!");
     } else {
-        info!("wt: worktree ready at {}", wt_path.display());
+        ready!("wt: worktree ready at {}", wt_path.display());
         // stdout = the new worktree path, for the `wt` shell function to cd into.
         println!("{}", wt_path.display());
     }
@@ -389,7 +389,7 @@ pub fn rm(opts: &RmOpts) -> Result<()> {
     if delete_branch {
         // Not forced (-d, not -D): an unmerged branch is a notice, not a loss.
         if git::run(&["git", "-C", &main_s, "branch", "-d", &branch], None).is_err() {
-            info!(
+            notice!(
                 "wt: branch {branch} NOT deleted (likely unmerged); force with: git -C {main_s} branch -D {branch}"
             );
         } else {
@@ -664,7 +664,7 @@ pub fn list(opts: &ListOpts) -> Result<()> {
     // reported; only the resulting styles are discarded.
     let loaded = crate::config::load();
     for warning in &loaded.warnings {
-        info!("wt: {warning}");
+        notice!("wt: {warning}");
     }
     let theme = opts.color.enabled().then(|| {
         let mut theme = loaded.theme;
@@ -782,7 +782,7 @@ fn copy_paths(main_clone: &Path, dst_root: &Path, paths: &[String]) -> Result<()
                 .transpose()
                 .and_then(|_| std::fs::copy(&src, &dst).map(|_| ()))
         } else {
-            info!("wt: no {rel} in {}; skipped", main_clone.display());
+            notice!("wt: no {rel} in {}; skipped", main_clone.display());
             continue;
         }
         .map_err(|e| crate::Error::new(format!("copying {rel}: {e}")))?;
@@ -810,7 +810,7 @@ pub fn copy(force: bool) -> Result<()> {
 
     let loaded = crate::config::load();
     for warning in &loaded.warnings {
-        info!("wt: {warning}");
+        notice!("wt: {warning}");
     }
     let paths = loaded.copy.paths;
     if paths.is_empty() {
