@@ -9,9 +9,9 @@ clone:
 
 ```
 ~/work/
-  repo/                       # the main clone
+  repo/                     # the main clone
   wt-repo-dev-fix-foo.git/  # worktree for branch dev/fix-foo
-  wt-repo-v1.2.3.git/         # detached worktree at tag v1.2.3
+  wt-repo-v1.2.3.git/       # detached worktree at tag v1.2.3
 ```
 
 One worktree == one branch == one IDE window == one coding agent. `wt` handles
@@ -36,21 +36,23 @@ these can I delete?*
 
 ```
 $ wt -g
-PATH                          BRANCH         STATUS   MERGED  UPSTREAM  LAST
-../repo                       main           clean    -       ok        2 hours ago   [main] [cwd]
+PATH                        BRANCH       STATUS   MERGED  UPSTREAM  LAST
+../repo                     main         clean    -       ok        2 hours ago   [main] [cwd]
 ../wt-repo-dev-fix-foo.git  dev/fix-foo  2 mod    +3      ahead 3   10 minutes ago
-../wt-repo-old-spike.git      old-spike      clean    merged  none      3 weeks ago
+../wt-repo-old-spike.git    old-spike    clean    merged  none      3 weeks ago
 ```
 
 `old-spike` is clean and merged: safe to `wt rm`. `fix-foo` has local work.
 
 The table is coloured when stdout is a terminal (green = safe / fresh, yellow =
-attention, red = work you'd lose); `--color always|never|auto` overrides, and
-`NO_COLOR` is respected.
+attention, red = work you'd lose), and stderr narration — progress, warnings,
+errors, prompts — is coloured likewise; `--color always|never|auto` overrides
+both, and `NO_COLOR` is respected.
 
-Every colour can be changed in `~/.config/wt/config.toml` (or `$WT_CONFIG`).
-`wt --generate-config` prints a fully commented template — the built-in
-defaults — to copy there and edit:
+Every table colour, and the thresholds behind the SIZE and LAST bands (MiB
+cutoffs and day bands), can be changed in `~/.config/wt/config.toml` (or
+`$WT_CONFIG`). `wt --generate-config` prints a fully commented template — the
+built-in defaults — to copy there and edit:
 
 ```sh
 mkdir -p ~/.config/wt && wt --generate-config > ~/.config/wt/config.toml
@@ -165,8 +167,6 @@ The full behaviour — including the stdout/stderr contract that makes the shell
 function work — is specified in [SPEC.md](SPEC.md). The short version: the
 binary's stdout carries only a machine result (a single path) for the commands
 the shell function cds after; every human-facing message goes to stderr.
-
-This is a Rust port of an earlier personal Python + bash implementation.
 
 ## License
 
